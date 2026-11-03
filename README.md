@@ -146,6 +146,17 @@ miss on a stored turn paints "this picture is not saved on this machine" with an
 retry, which re-enables generation for that row only. Reopening a conversation therefore
 never re-runs old prompts.
 
+## Known limitations
+
+- A source-less `edit_image` is cached under the request alone, so asking for the same edit
+  of "the newest render" in a later session can replay the earlier result. Replay needs the
+  key to be derivable from the program, and the program does not name the source.
+- The client bundle is ~3.8 MB minified: OpenUI pulls d3, katex, a syntax highlighter,
+  react-markdown, radix, and lucide. First paint has not been measured; the browser check in
+  `test/spike.md` owns that.
+- A source-less edit of an image that ComfyUI names with a subfolder is uploaded under the
+  bare file name; ComfyUI 0.43 answers with no subfolder, which is the only shape observed.
+
 ## Not in scope
 
 The Tauri shell, chat streaming, session storage, settings UI, web tools, agent-callable

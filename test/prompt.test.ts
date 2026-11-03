@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { openuiPrompt, renderList } from '../src/host/prompt'
+import { openuiPrompt, registerAgentPrompt, renderList } from '../src/host/prompt'
 import { saveRender } from '../src/host/images'
 
 async function tempDir() {
@@ -55,5 +55,62 @@ describe('openuiPrompt', () => {
     const text = openuiPrompt()
     expect(text).toContain('generate_image')
     expect(text).toContain('edit_image')
+  })
+})
+
+describe('registerAgentPrompt', () => {
+  test('gives the main agent the complete prompt and a render list, subagents neither', () => {
+    const sections: any[] = []
+    const contexts: any[] = []
+    const listeners = new Map<string, (payload: any) => unknown>()
+    const disposers: (() => void)[] = []
+
+    const ctx = {
+      effect(fn: () => () => void) {
+        disposers.push(fn())
+        return () => {}
+      },
+      on(event: string, listener: (payload: any) => unknown) {
+        listeners.set(event, listener)
+        return () => {}
+      },
+    } as any
+
+    registerAgentPrompt(ctx, {
+      comfyBase: 'http://127.0.0.1:8188',
+      imagesDir: '/nonexistent/genui-images',
+      maxBatch: 8,
+      pollMs: 750,
+      minPngBytes: 30_000,
+    })
+
+    const agent = (id: string, origin?: 'subagent') => ({
+      id,
+      session: { header: { origin } },
+      ctx: {
+        systemPrompt: {
+          section(value: any) {
+            sections.push(value)
+            return () => {}
+          },
+          context(value: any) {
+            contexts.push(value)
+            return () => {}
+          },
+        },
+      },
+    })
+
+    const created = listeners.get('agent/created')
+    expect(created).toBeDefined()
+    created!({ agent: agent('s1') })
+    created!({ agent: agent('s2', 'subagent') })
+
+    expect(sections).toHaveLength(1)
+    expect(sections[0]).toMatchObject({ name: 'genui:openui', complete: true })
+    expect(sections[0].text).toContain('root = Stack(')
+    expect(contexts).toHaveLength(1)
+    expect(contexts[0].name).toBe('genui:renders')
+    expect(contexts[0].text()).toBe('')
   })
 })
