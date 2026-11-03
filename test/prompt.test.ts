@@ -86,13 +86,15 @@ describe('registerAgentPrompt', () => {
       },
     } as any
 
+    let openui = true
     registerAgentPrompt(ctx, {
+      openui: true,
       comfyBase: 'http://127.0.0.1:8188',
       imagesDir: '/nonexistent/genui-images',
       maxBatch: 8,
       pollMs: 750,
       minPngBytes: 30_000,
-    })
+    }, { enabled: () => openui, set: (next) => { openui = next }, file: '/tmp/x.json' })
 
     const agent = (id: string, origin?: 'subagent', agentPreset?: string) => ({
       id,
@@ -120,9 +122,16 @@ describe('registerAgentPrompt', () => {
     expect(sections[0].name).toBe('genui:openui')
     // Additive: the harness prompt survives, so this must never claim to be all of it.
     expect(sections[0].complete).toBeUndefined()
-    expect(sections[0].text).toContain('root = Stack(')
+    expect(sections[0].text()).toContain('root = Stack(')
     expect(contexts).toHaveLength(1)
     expect(contexts[0].name).toBe('genui:renders')
     expect(contexts[0].text()).toBe('')
+
+    // The mode is read at every assembly: off contributes nothing, on brings it back.
+    openui = false
+    expect(sections[0].text()).toBe('')
+    expect(contexts[0].text()).toBe('')
+    openui = true
+    expect(sections[0].text()).toContain('root = Stack(')
   })
 })

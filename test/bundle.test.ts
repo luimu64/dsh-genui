@@ -65,6 +65,8 @@ function materialize() {
     if (spec === 'react-dom') return nodeRequire('react-dom')
     if (spec === 'react-dom/client') return nodeRequire('react-dom/client')
     if (spec === '@deepseek-ai/cordis') return {}
+    // The shell's markdown renderer: a platform seed, stubbed to prove the bundle loads.
+    if (spec === '@deepseek-ai/dsh-client-ui-primitives') return { MarkdownText: () => null }
     throw new Error(`require("${spec}") is not a platform seed`)
   }
 
@@ -83,7 +85,14 @@ describe('client bundle', () => {
 
   test('requires only modules the shell seeds', () => {
     const { required } = materialize()
-    expect(new Set(required)).toEqual(new Set(['react', 'react/jsx-runtime', 'react-dom']))
+    expect(new Set(required)).toEqual(
+      new Set([
+        'react',
+        'react/jsx-runtime',
+        'react-dom',
+        '@deepseek-ai/dsh-client-ui-primitives',
+      ]),
+    )
   })
 
   test('exports the plugin face the loader mounts', () => {

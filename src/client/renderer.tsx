@@ -8,6 +8,7 @@
  */
 import { useMemo, useState, type ReactNode } from 'react'
 import { Renderer } from '@openuidev/react-lang'
+import { MarkdownText, type MarkdownLabels } from '@deepseek-ai/dsh-client-ui-primitives'
 import { harnessLibrary } from './library'
 import { makeToolProvider } from './toolProvider'
 import { friendlyErrors, repairProgram } from './repair'
@@ -17,6 +18,12 @@ import { assistantText, observeStep, reasoningText, rowMode, stepKey, type Assis
 
 export interface OpenUIRowProps {
   node: { data: AssistantRowData }
+}
+
+/** English chrome for the shell's markdown renderer; the plugin's copy is not localized. */
+const MARKDOWN_LABELS: MarkdownLabels = {
+  code: { copyLabel: 'Copy', copiedLabel: 'Copied' },
+  footnotes: 'Footnotes',
 }
 
 function Reasoning({ text }: { text: string }): ReactNode {
@@ -64,8 +71,10 @@ export function OpenUIRow({ node }: OpenUIRowProps): ReactNode {
       <Reasoning text={reasoning} />
       {mode === 'building' ? <div className="genui-building">Building interface…</div> : null}
       {mode === 'partial' || mode === 'text' ? (
-        <div className="genui-fallback" style={{ whiteSpace: 'pre-wrap' }}>
-          {text}
+        // Not a program: the harness's own renderer, so a turned-off mode or a model that
+        // ignored the format still gets its markdown, code blocks, and tables.
+        <div className="genui-fallback">
+          <MarkdownText text={text} streaming={data.status === 'running'} labels={MARKDOWN_LABELS} />
         </div>
       ) : null}
       {mode === 'program' ? (

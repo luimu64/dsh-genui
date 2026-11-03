@@ -126,6 +126,26 @@ origin check only stops a browser on another site from using them.
 One ComfyUI job per batch: `batch_size = count`, one history entry, N images. All frames of
 a batch appear together; a failed frame fails the request.
 
+## The mode
+
+Whether the assistant answers as an interface program is a runtime mode, not a profile
+decision. `/openui` in the composer flips it for the whole instance:
+
+```text
+/openui off     → the next answer is ordinary markdown
+/openui on      → the next answer is an OpenUI program
+/openui         → report the current mode
+```
+
+The flag lives in `$DSH_HOME/genui-mode.json` (or `~/.dsh/genui-mode.json`), so a restart
+keeps it; `openui: true` in the plugin config is only the initial default. Both providers are
+evaluated at every prompt assembly, so a toggle lands on the next turn without recreating the
+agent — and with the mode off the section and the render list both render to nothing.
+
+The client keeps painting either shape: a program goes to the OpenUI renderer, prose goes to
+the harness's own markdown renderer. Turning the mode off cannot leave the transcript blank or
+unformatted.
+
 ## The prompt is additive
 
 The OpenUI section is registered as an ordinary ordered section (`genui:openui`, order 950),

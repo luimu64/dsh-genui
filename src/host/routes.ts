@@ -10,6 +10,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import { readRender } from './images'
+import type { ModeStore } from './mode'
 import type { GenuiConfig, GenuiService } from './service'
 
 export class HttpError extends Error {
@@ -108,7 +109,12 @@ async function guard(
   }
 }
 
-export function registerRoutes(ctx: Context, service: GenuiService, config: GenuiConfig): (() => void)[] {
+export function registerRoutes(
+  ctx: Context,
+  service: GenuiService,
+  config: GenuiConfig,
+  mode: ModeStore,
+): (() => void)[] {
   const post = (path: string, run: (body: Record<string, unknown>) => Promise<unknown>) =>
     ctx.webServer.register({
       kind: 'exact',
@@ -123,6 +129,22 @@ export function registerRoutes(ctx: Context, service: GenuiService, config: Genu
   return [
     post('/genui/generate', (body) => service.generate(body as any)),
     post('/genui/edit', (body) => service.edit(body as any)),
+
+    ctx.webServer.register({
+      kind: 'exact',
+      path: '/genui/mode',
+      handler: (req, res) =>
+        guard(req, res, async () => {
+          if (req.method === 'GET') {
+            sendJson(res, 200, { openui: mode.enabled() })
+            return
+          }
+          const body = payload(await readJson(req))
+          if (typeof body.enabled !== 'boolean') throw new HttpError(400, 'enabled must be a boolean')
+          mode.set(body.enabled)
+          sendJson(res, 200, { openui: mode.enabled() })
+        }),
+    }),
 
     ctx.webServer.register({
       kind: 'exact',

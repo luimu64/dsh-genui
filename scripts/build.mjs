@@ -25,6 +25,9 @@ const seeded = [
   'react-dom',
   'react-dom/client',
   '@deepseek-ai/cordis',
+  // The harness's own markdown renderer: prose answers are painted by the shell's copy,
+  // not by a second one with different chrome.
+  '@deepseek-ai/dsh-client-ui-primitives',
 ]
 
 // Peers that only unused code paths reach: stub them rather than install them.

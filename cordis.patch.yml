@@ -2,6 +2,7 @@
     - id: genui
       name: dsh-genui
       config:
+        openui: true
         comfyBase: http://127.0.0.1:8188
         imagesDir: /home/luimu/.local/share/openui-harness/images
         maxBatch: 8

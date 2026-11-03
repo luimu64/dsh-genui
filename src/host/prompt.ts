@@ -12,6 +12,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { listRenders } from './images'
+import type { ModeStore } from './mode'
 import type { Config } from './config'
 
 export function openuiPrompt(): string {
@@ -35,7 +36,7 @@ export function renderList(imagesDir: string, limit = 20): string {
   return ['### Renders in this conversation', '', ...lines].join('\n')
 }
 
-export function registerAgentPrompt(ctx: Context, config: Config): void {
+export function registerAgentPrompt(ctx: Context, config: Config, mode: ModeStore): void {
   const prompt = openuiPrompt()
   const disposers = new Map<string, () => void>()
 
@@ -50,15 +51,18 @@ export function registerAgentPrompt(ctx: Context, config: Config): void {
     // Additive, never `complete`: the harness keeps its identity, tools, sandbox and approval
     // policy, and this only adds the answer format on top. A complete section would replace
     // the whole prompt, and a preset that owns one would make assembly throw.
+    // Both providers are read at every assembly, so /openui takes effect on the next turn
+    // without recreating the agent. An empty section and an empty context both contribute
+    // nothing.
     const offSection = agent.ctx.systemPrompt.section({
       name: 'genui:openui',
       order: 950,
-      text: prompt,
+      text: () => (mode.enabled() ? prompt : ''),
     })
     const offContext = agent.ctx.systemPrompt.context({
       name: 'genui:renders',
       order: 900,
-      text: () => renderList(config.imagesDir),
+      text: () => (mode.enabled() ? renderList(config.imagesDir) : ''),
     })
     disposers.set(agent.id, () => {
       offSection()
