@@ -1,0 +1,330 @@
+/* dsh-genui in-flow styles.
+ *
+ * Two scoped groups, nothing global:
+ *  - `.genui-root` holds the OpenUI program, the assistant-row fallbacks, and the genui
+ *    image components the answer asks for.
+ *  - `[data-genui-overlay]` holds the fullscreen viewer, which is appended to <body> and
+ *    therefore outside `.genui-root`.
+ *
+ * OpenUI's own components are styled by @openuidev/react-ui's index.css + defaults.css,
+ * injected once by the plugin. This file only covers the genui image UI and the row
+ * states, so no DSH chrome can be reached by these selectors.
+ */
+
+/* The Material 3 roles the ported image block reads. genui defined them in its :root;
+   here they are scoped so they cannot leak into the harness palette. */
+.genui-root,
+[data-genui-overlay] {
+  --md-primary: #d0bcff;
+  --md-on-primary: #381e72;
+  --md-error: #f2b8b5;
+  --md-surface-container: #211f26;
+  --md-on-surface: #e6e0e9;
+  --md-on-surface-variant: #cac4d0;
+  --md-outline: #938f99;
+  --md-hover: 0.08;
+  --md-ease: cubic-bezier(0.2, 0, 0, 1);
+  --md-ease-expressive: cubic-bezier(0.34, 0.8, 0.34, 1);
+  --md-fast: 160ms;
+  --md-shape-xl: 24px;
+  --md-shape-full: 9999px;
+  --md-label-large: 500 14px/1.43 system-ui, sans-serif;
+  --md-label-medium: 500 12px/1.33 system-ui, sans-serif;
+}
+
+/* ---------- assistant row ---------- */
+
+.genui-row {
+  width: 100%;
+  min-width: 0;
+}
+
+.genui-root {
+  width: 100%;
+  min-width: 0;
+  color: var(--dsw-alias-label-primary, #e6e6e9);
+}
+
+.genui-root * {
+  box-sizing: border-box;
+}
+
+.genui-fallback {
+  font: inherit;
+  color: inherit;
+  overflow-wrap: anywhere;
+}
+
+.genui-reasoning > summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--dsw-alias-label-caption, #8b8b93);
+  margin-bottom: 4px;
+}
+
+.genui-reasoning-body {
+  border-left: 2px solid var(--dsw-alias-border-l1, #2c2c31);
+  padding-left: 10px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: var(--dsw-alias-label-caption, #8b8b93);
+  overflow-wrap: anywhere;
+}
+
+.genui-error {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--dsw-alias-state-error-primary, #f2b8b5);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--dsw-alias-state-error-primary, #f2b8b5);
+}
+
+.genui-error p {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+}
+
+/* Placeholder while the model is still writing the program, and the renderer's own
+   query loader (an image query paints its own shimmer instead). */
+.genui-building,
+.genui-loading {
+  height: 28px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, #222 25%, #2c2c2c 37%, #222 63%);
+  background-size: 400% 100%;
+  animation: genui-shimmer 1.4s ease infinite;
+}
+
+/* ---------- generated image ---------- */
+/* Ported from genui-harness's app stylesheet: only the generated-image block, scoped. */
+
+.genui-root .genimg-frame {
+  position: relative;
+  display: block;
+}
+
+.genui-root .genimg-frame img {
+  display: block;
+  width: 100%;
+  border-radius: var(--md-shape-xl);
+  cursor: zoom-in;
+}
+
+.genui-root .genimg-actions {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  gap: 8px;
+  opacity: 0;
+  transition: opacity var(--md-fast) var(--md-ease);
+}
+
+.genui-root .genimg-frame:hover .genimg-actions,
+.genui-root .genimg-frame:focus-within .genimg-actions {
+  opacity: 1;
+}
+
+.genui-root .genimg-actions button {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--md-shape-full);
+  background: rgba(54, 52, 59, 0.9);
+  color: var(--md-on-surface);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--md-fast) var(--md-ease);
+}
+
+.genui-root .genimg-actions button:hover {
+  background: var(--md-primary);
+  color: var(--md-on-primary);
+}
+
+.genui-root .genimg figcaption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 4px;
+  font: var(--md-label-medium);
+  color: var(--md-on-surface-variant);
+}
+
+.genui-root .genimg figcaption button {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--md-shape-full);
+  background: transparent;
+  color: var(--md-primary);
+  font: var(--md-label-medium);
+  cursor: pointer;
+  transition: background var(--md-fast) var(--md-ease);
+}
+
+.genui-root .genimg figcaption button:hover {
+  background: rgba(208, 188, 255, var(--md-hover));
+}
+
+.genui-root .genimg-note {
+  flex: 0 0 auto;
+  color: var(--md-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 55%;
+}
+
+.genui-root .genimg-loading {
+  position: relative;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: var(--md-shape-xl);
+  background: var(--md-surface-container);
+  color: var(--md-on-surface-variant);
+  font: var(--md-label-large);
+}
+
+.genui-root .genimg-loading::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    100deg,
+    transparent 25%,
+    rgba(208, 188, 255, 0.08) 45%,
+    rgba(208, 188, 255, 0.16) 50%,
+    rgba(208, 188, 255, 0.08) 55%,
+    transparent 75%
+  );
+  transform: translateX(-100%);
+  animation: genui-shimmer 1.8s infinite var(--md-ease-expressive);
+}
+
+@keyframes genui-shimmer {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+.genui-root .genimg-loading.is-failed {
+  color: var(--md-error);
+}
+
+.genui-root .genimg-loading.is-failed::after {
+  animation: none;
+  opacity: 0;
+}
+
+.genui-root .genimg-loading.is-missing {
+  grid-auto-rows: min-content;
+  padding: 12px;
+  text-align: center;
+  color: var(--md-on-surface-variant);
+  font: var(--md-label-medium);
+}
+
+.genui-root .genimg-loading.is-missing::after {
+  animation: none;
+  opacity: 0;
+}
+
+.genui-root .genimg-loading.is-missing button {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--md-shape-full);
+  background: transparent;
+  color: var(--md-primary);
+  font: var(--md-label-medium);
+  cursor: pointer;
+  transition: background var(--md-fast) var(--md-ease);
+}
+
+.genui-root .genimg-loading.is-missing button:hover {
+  background: rgba(208, 188, 255, var(--md-hover));
+}
+
+[data-genui-overlay] {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 72px 24px 24px;
+  background-color: rgba(0, 0, 0, 0.92);
+  cursor: zoom-out;
+}
+
+[data-genui-overlay] .genimg-overlay > img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: var(--md-shape-xl);
+  cursor: default;
+  box-shadow: var(--openui-shadow-3xl);
+  opacity: 1;
+}
+
+[data-genui-overlay] .genimg-overlay-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px;
+  background: var(--md-surface-container);
+  cursor: default;
+}
+
+[data-genui-overlay] .genimg-overlay-prompt {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--md-on-surface-variant);
+  font: var(--md-label-large);
+}
+
+[data-genui-overlay] .genimg-overlay-bar button {
+  flex: 0 0 auto;
+  min-height: 40px;
+  padding: 0 20px;
+  border: 1px solid var(--md-outline);
+  border-radius: var(--md-shape-full);
+  background: transparent;
+  color: var(--md-primary);
+  font: var(--md-label-large);
+  cursor: pointer;
+  transition: background var(--md-fast) var(--md-ease);
+}
+
+[data-genui-overlay] .genimg-overlay-bar button:hover {
+  background: rgba(208, 188, 255, var(--md-hover));
+}
+
+/* genui's global reduced-motion rule, scoped to the same two roots. */
+@media (prefers-reduced-motion: reduce) {
+  .genui-root *,
+  .genui-root *::before,
+  .genui-root *::after,
+  [data-genui-overlay] *,
+  [data-genui-overlay] *::before,
+  [data-genui-overlay] *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -16,14 +16,15 @@ await build({
 })
 
 // Platform seed words (see dsh-client-modules `staticModules`): the shell owns these
-// instances, so the bundle must require them instead of shipping a second copy.
+// instances, so the bundle must require them instead of shipping a second copy. zod is
+// deliberately NOT here: the seed only names the bare specifier, while OpenUI imports
+// `zod/v4`, so externalising it would either split the instance or miss the seed word.
 const seeded = [
   'react',
   'react/jsx-runtime',
   'react-dom',
   'react-dom/client',
   '@deepseek-ai/cordis',
-  'zod',
 ]
 
 // Peers that only unused code paths reach: stub them rather than install them.
@@ -42,6 +43,7 @@ const client = await build({
   entryPoints: [`${root}/src/client/index.tsx`],
   bundle: true,
   write: false,
+  minify: true,
   platform: 'browser',
   format: 'cjs',
   target: 'es2022',

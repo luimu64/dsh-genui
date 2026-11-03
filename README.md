@@ -15,7 +15,7 @@ User prompt
      -> final assistant message containing OpenUI Lang
         -> DSH session log stores the text
         -> DSH client renders the assistant step
-           -> dsh-genui Definition claims the step (exclusive)
+           -> dsh-genui shadows the assistant-step renderer (priority -1)
            -> OpenUI Renderer parses the program
               -> Query("generate_image")
                  -> per-turn toolProvider
@@ -31,8 +31,8 @@ User prompt
 
 - `src/host/` — Cordis plugin: config, prompt registration (main agent only), ComfyUI
   graph mutation, ComfyUI client, render store, generation service, `/genui/*` routes.
-- `src/client/` — browser plugin: the `assistant-step` Definition, the OpenUI renderer, the
-  genui component library, the cache-first query provider, and the image styles.
+- `src/client/` — browser plugin: the assistant-row renderer, the OpenUI renderer, the genui
+  component library, the cache-first query provider, and the image styles.
 - `assets/` — the five committed ComfyUI graphs and the OpenUI system prompt.
 - `lib/` — generated and committed, so the bundle installs without a build step.
 
@@ -126,10 +126,22 @@ origin check only stops a browser on another site from using them.
 One ComfyUI job per batch: `batch_size = count`, one history entry, N images. All frames of
 a batch appear together; a failed frame fails the request.
 
+## The assistant row
+
+The answer's row is painted by replacing the `assistant-step` renderer at priority `-1` in the
+keyed `conversation.chat.node` slot, not by claiming the assistant events with an exclusive
+Definition. The installed client builds Turn-tail's copy/fork/usage banner from the business
+Assistant payload (`FinalAssistantChatData.finalNode`), and an exclusive claim on
+`assistant/message` is exactly what stops that payload from being published; a Definition
+also may not publish Location data under another Definition's key. Shadowing the renderer
+keeps every built-in projection whole and changes only the pixels. `test/spike.md` records
+the evidence and what an operator should still check in a browser.
+
 ## Replay
 
-Every rendered assistant step records whether it started from a live chunk. A live turn may
-queue ComfyUI; a stored turn may only display what the render cache already holds. A cache
+A step that was painted `running` in this page session was produced live and may queue
+ComfyUI. A step that is already settled the first time it is painted came out of the session
+log and may only display what the render cache already holds. A cache
 miss on a stored turn paints "this picture is not saved on this machine" with an explicit
 retry, which re-enables generation for that row only. Reopening a conversation therefore
 never re-runs old prompts.

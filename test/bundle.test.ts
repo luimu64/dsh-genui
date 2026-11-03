@@ -1,0 +1,122 @@
+/**
+ * The built client bundle is what actually ships, so it is tested as a bundle: it must
+ * register under the package name, require nothing the shell does not seed, and contribute
+ * exactly one slot entry.
+ */
+import { describe, expect, test } from 'bun:test'
+import { readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { join } from 'node:path'
+
+const root = join(import.meta.dir, '..')
+const nodeRequire = createRequire(join(root, 'package.json'))
+
+function element() {
+  return {
+    dataset: {} as Record<string, string>,
+    style: {} as Record<string, string>,
+    textContent: '',
+    className: '',
+    append() {},
+    appendChild() {},
+    remove() {},
+    setAttribute() {},
+    addEventListener() {},
+    removeEventListener() {},
+    querySelector: () => null,
+  }
+}
+
+/** Evaluate lib/client.js the way the shell's module loader would. */
+function materialize() {
+  const head = element()
+  const documentStub = {
+    documentElement: element(),
+    head,
+    body: element(),
+    createElement: () => element(),
+    querySelector: () => null,
+    addEventListener() {},
+    removeEventListener() {},
+  }
+  const windowStub: Record<string, any> = {
+    document: documentStub,
+    addEventListener() {},
+    removeEventListener() {},
+    matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
+  }
+  windowStub.__ModuleLoader__ = {
+    load(registration: any) {
+      windowStub.__registration = registration
+    },
+  }
+
+  const code = readFileSync(join(root, 'lib/client.js'), 'utf8')
+  new Function('window', 'document', 'globalThis', code).call(windowStub, windowStub, documentStub, globalThis)
+
+  const registration = windowStub.__registration
+  if (!registration) throw new Error('bundle did not call __ModuleLoader__.load')
+
+  const required: string[] = []
+  const shim = (spec: string) => {
+    required.push(spec)
+    if (spec === 'react') return nodeRequire('react')
+    if (spec === 'react/jsx-runtime') return nodeRequire('react/jsx-runtime')
+    if (spec === 'react-dom') return nodeRequire('react-dom')
+    if (spec === 'react-dom/client') return nodeRequire('react-dom/client')
+    if (spec === '@deepseek-ai/cordis') return {}
+    throw new Error(`require("${spec}") is not a platform seed`)
+  }
+
+  const exports = registration.factory(shim) as {
+    apply(ctx: unknown): void
+    inject: string[]
+    name: string
+  }
+  return { registration, exports, required, document: documentStub }
+}
+
+describe('client bundle', () => {
+  test('registers under the package name the boot graph expects', () => {
+    expect(materialize().registration.id).toBe('dsh-genui')
+  })
+
+  test('requires only modules the shell seeds', () => {
+    const { required } = materialize()
+    expect(new Set(required)).toEqual(new Set(['react', 'react/jsx-runtime', 'react-dom']))
+  })
+
+  test('exports the plugin face the loader mounts', () => {
+    const { exports } = materialize()
+    expect(exports.name).toBe('dsh-genui-client')
+    expect(exports.inject).toEqual(['slots'])
+    expect(typeof exports.apply).toBe('function')
+  })
+
+  test('shadows the assistant row instead of adding a second one', () => {
+    const { exports, document } = materialize()
+    const registrations: { options: any; component: unknown }[] = []
+    exports.apply({
+      effect: (fn: () => unknown) => {
+        fn()
+        return () => {}
+      },
+      slots: {
+        inject: (_name: string, callback: () => void) => callback(),
+        register: (options: unknown, component: unknown) => {
+          registrations.push({ options, component })
+          return () => {}
+        },
+      },
+    })
+    expect(registrations).toHaveLength(1)
+    expect(registrations[0].options).toMatchObject({
+      name: 'conversation.chat.node',
+      key: 'assistant-step',
+      priority: -1,
+    })
+    expect(typeof registrations[0].component).toBe('function')
+    // The theme attribute and one stylesheet: the OpenUI tokens and the genui image rules.
+    expect(document.documentElement.dataset.openuiTheme).toBe('dark')
+  })
+})
