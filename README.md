@@ -167,7 +167,13 @@ curl -s -X POST -H 'content-type: application/json' -H 'origin: http://127.0.0.1
 ## The prompt is additive
 
 The OpenUI section is registered as an ordinary ordered section (`genui:openui`, order 950),
-never as `complete: true`. The harness keeps its identity, tool guidance, sandbox and
+never as `complete: true`. It is added from the `system-prompt/assemble` waterfall, and that
+listener is **prepended**, so its post-`next()` code runs last. That is what keeps it alive in a
+profile that also runs a bundle owning the whole prompt: `dsh-liberation` prepends a listener
+that replaces `assembly.sections` with its own persona, and a plain listener's section is
+computed and then thrown away — the mode reads on, the route answers, and the model still gets
+markdown. Prepending appends the section *after* that rewrite. `test/assembly.test.ts` runs the
+real `SystemPrompt` service against both shapes. The harness keeps its identity, tool guidance, sandbox and
 approval policy; this only adds the answer format on top, which is why it can sit in a profile
 you also use for coding. Two consequences:
 
