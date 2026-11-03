@@ -1,0 +1,9 @@
+- insert:
+    - id: genui
+      name: dsh-genui
+      config:
+        comfyBase: http://127.0.0.1:8188
+        imagesDir: /home/luimu/.local/share/openui-harness/images
+        maxBatch: 8
+        pollMs: 750
+        minPngBytes: 30000
