@@ -1,19 +1,26 @@
 /**
- * The OpenUI system prompt, registered on the main agent only.
+ * The OpenUI system prompt, added at assembly time on the main agent only.
  *
- * genui made every answer an openui-lang program by making that the whole system prompt.
- * DSH keeps its own prompt for tools and safety, so this section is `complete: true` for the
- * top-level agent and absent for subagents: a child that returns OpenUI code instead of a
- * result is useless to the parent.
+ * Two things this deliberately does NOT do:
+ *
+ * - it is not `complete`: the harness keeps its identity, tools, sandbox and approval policy,
+ *   and this only adds the answer format on top;
+ * - it is not registered per agent through `agent.ctx`. A section registered that way only
+ *   exists for agents the plugin saw being created, so conversations that were already open,
+ *   or opened while the plugin was reloading, answered in markdown no matter what the mode
+ *   said. The assembly waterfall sees every request, so the mode is decided where the prompt is
+ *   actually built, and `/openui on` works immediately in any conversation.
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
-import type {} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { listRenders } from './images'
 import type { ModeStore } from './mode'
 import type { Config } from './config'
+
+const SECTION = 'genui:openui'
+const CONTEXT = 'genui:renders'
 
 export function openuiPrompt(): string {
   const candidates = [
@@ -26,8 +33,8 @@ export function openuiPrompt(): string {
 }
 
 /**
- * The renders this conversation can still edit, newest first. Synchronous on purpose: a
- * `PromptContext.text` that returns a Promise breaks prompt assembly.
+ * The renders this conversation can still edit, newest first. Synchronous on purpose: the
+ * prompt is assembled synchronously per request.
  */
 export function renderList(imagesDir: string, limit = 20): string {
   const renders = listRenders(imagesDir, limit)
@@ -36,58 +43,29 @@ export function renderList(imagesDir: string, limit = 20): string {
   return ['### Renders in this conversation', '', ...lines].join('\n')
 }
 
+/** The agent behind one assembly, when the caller supplied it. */
+function agentOf(context: unknown): any {
+  const candidate = (context as { agent?: unknown } | undefined)?.agent
+  return candidate && typeof candidate === 'object' ? candidate : undefined
+}
+
 export function registerAgentPrompt(ctx: Context, config: Config, mode: ModeStore): void {
   const prompt = openuiPrompt()
-  const disposers = new Map<string, () => void>()
 
-  const detach = (agentId: string) => {
-    disposers.get(agentId)?.()
-    disposers.delete(agentId)
-  }
+  ctx.on('system-prompt/assemble', async (assembly, context, next) => {
+    const built = await next()
+    const agent = agentOf(context)
+    // Subagents keep DSH's normal prompt and return normal text to their caller.
+    if (agent?.session?.header?.origin === 'subagent') return built
+    const sessionId = typeof agent?.session?.id === 'string' ? agent.session.id : ''
+    if (!sessionId || !mode.isOn(sessionId)) return built
+    if (built.sections.some((section) => section.name === SECTION)) return built
 
-  const attach = (agent: { id: string; session: any; ctx: Context }): void => {
-    // Subagents keep DSH's normal prompt and return normal text.
-    if (agent.session.header.origin === 'subagent') return
-    const agentId = String(agent.id)
-    if (disposers.has(agentId)) return
-    const sessionId = String(agent.session.id)
-
-    // Additive, never `complete`: the harness keeps its identity, tools, sandbox and approval
-    // policy, and this only adds the answer format on top. Both providers are read at every
-    // assembly, so /openui takes effect on the next turn without recreating the agent — which
-    // is what makes the mode work in a conversation whose agent predates this plugin. An empty
-    // section and an empty context both contribute nothing.
-    const offSection = agent.ctx.systemPrompt.section({
-      name: 'genui:openui',
-      order: 950,
-      text: () => (mode.isOn(sessionId) ? prompt : ''),
-    })
-    const offContext = agent.ctx.systemPrompt.context({
-      name: 'genui:renders',
-      order: 900,
-      text: () => (mode.isOn(sessionId) ? renderList(config.imagesDir) : ''),
-    })
-    disposers.set(agentId, () => {
-      offSection()
-      offContext()
-    })
-  }
-
-  // Conversations already open when this plugin loads get the section too; without this they
-  // would keep answering in markdown whatever the mode says.
-  for (const agent of ctx.agents.list()) attach(agent as any)
-
-  ctx.on('agent/created', ({ agent }) => {
-    attach(agent as any)
-    return undefined
-  })
-
-  ctx.on('agent/disposed', ({ agent }) => {
-    detach(String(agent.id))
-  })
-
-  ctx.effect(() => () => {
-    for (const dispose of disposers.values()) dispose()
-    disposers.clear()
+    const renders = renderList(config.imagesDir)
+    return {
+      ...built,
+      sections: [...built.sections, { name: SECTION, text: prompt }],
+      contexts: renders ? [...built.contexts, { name: CONTEXT, text: renders }] : built.contexts,
+    }
   })
 }

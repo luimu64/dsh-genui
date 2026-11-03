@@ -68,40 +68,13 @@ describe('openuiPrompt', () => {
 })
 
 describe('registerAgentPrompt', () => {
-  test('attaches the section to every main agent and decides per conversation', () => {
-    const sections: any[] = []
-    const contexts: any[] = []
-    const listeners = new Map<string, (payload: any) => unknown>()
-    const disposers: (() => void)[] = []
+  test('adds the section at assembly, for that conversation only', async () => {
+    const listeners = new Map<string, (assembly: any, context: any, next: () => Promise<any>) => Promise<any>>()
     const on = new Set<string>()
 
-    const agent = (id: string, sessionId: string, origin?: 'subagent') => ({
-      id,
-      session: { id: sessionId, header: { origin } },
-      ctx: {
-        systemPrompt: {
-          section(value: any) {
-            sections.push(value)
-            return () => {}
-          },
-          context(value: any) {
-            contexts.push(value)
-            return () => {}
-          },
-        },
-      },
-    })
-
-    // A conversation that was already open when the plugin loaded.
-    const existing = agent('a0', 's0')
     const ctx = {
-      agents: { list: () => [existing] },
-      effect(fn: () => () => void) {
-        disposers.push(fn())
-        return () => {}
-      },
-      on(event: string, listener: (payload: any) => unknown) {
-        listeners.set(event, listener)
+      on(name: string, listener: any) {
+        listeners.set(name, listener)
         return () => {}
       },
     } as any
@@ -119,29 +92,34 @@ describe('registerAgentPrompt', () => {
       sessions: () => [...on],
     })
 
-    const created = listeners.get('agent/created')
-    expect(created).toBeDefined()
-    created!({ agent: agent('a1', 's1') })
-    created!({ agent: agent('a2', 's2', 'subagent') })
+    const assemble = listeners.get('system-prompt/assemble')
+    expect(assemble).toBeDefined()
 
-    // One section for the pre-existing conversation, one for the new one, none for the child.
-    expect(sections).toHaveLength(2)
-    expect(sections[0].name).toBe('genui:openui')
-    // Additive: the harness prompt survives, so this must never claim to be all of it.
-    expect(sections[0].complete).toBeUndefined()
+    const base = { sections: [{ name: 'deployment:persona-prefix', text: 'You are a coding agent.' }], contexts: [], tools: [], variables: {} }
+    const next = async () => structuredClone(base)
+    const agent = (id: string, origin?: 'subagent') => ({ session: { id, header: { origin } } })
 
-    // Off by default, and each conversation answers for itself.
-    expect(sections[0].text()).toBe('')
-    expect(sections[1].text()).toBe('')
+    const off = await assemble!({ ...base }, { agent: agent('s1') }, next)
+    expect(off.sections.map((s: any) => s.name)).toEqual(['deployment:persona-prefix'])
+
     on.add('s1')
-    expect(sections[0].text()).toBe('')
-    expect(sections[1].text()).toContain('root = Stack(')
-    expect(contexts[1].name).toBe('genui:renders')
-    expect(contexts[1].text()).toBe('')
+    const mine = await assemble!({ ...base }, { agent: agent('s1') }, next)
+    expect(mine.sections.map((s: any) => s.name)).toEqual(['deployment:persona-prefix', 'genui:openui'])
+    expect(mine.sections[1].text).toContain('root = Stack(')
 
-    // And back off again, on the next assembly, for that conversation only.
+    // Another conversation is untouched, and so is a subagent.
+    const other = await assemble!({ ...base }, { agent: agent('s2') }, next)
+    expect(other.sections).toHaveLength(1)
+    const child = await assemble!({ ...base }, { agent: agent('s3', 'subagent') }, next)
+    expect(child.sections).toHaveLength(1)
+
+    // Assembling twice never stacks the section.
+    const again = await assemble!({ ...base }, { agent: agent('s1') }, next)
+    expect(again.sections).toHaveLength(2)
+
+    // And off again lands on the next assembly.
     on.delete('s1')
-    expect(sections[1].text()).toBe('')
-    expect(contexts[1].text()).toBe('')
+    const back = await assemble!({ ...base }, { agent: agent('s1') }, next)
+    expect(back.sections).toHaveLength(1)
   })
 })

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, test } from 'bun:test'
 import {
   assistantText,
   looksLikeOpenUI,
+  programStarted,
   programText,
   observeStep,
   reasoningText,
@@ -107,14 +108,20 @@ describe('live tracking', () => {
 describe('rowMode', () => {
   const data = (status: AssistantRowData['status']) => ({ status })
 
-  test('a live step streams behind a placeholder, never a half program', () => {
+  test('a live program streams behind a placeholder, never a half program', () => {
     expect(rowMode(data('running'), 'root = Stack([', true)).toBe('building')
-    expect(rowMode(data('running'), '', true)).toBe('building')
+    expect(rowMode(data('running'), 'card = Card([])', true)).toBe('building')
   })
 
-  test('a frozen prefix from the log is text, not an endless shimmer', () => {
+  test('reasoning alone paints nothing instead of an endless building bar', () => {
+    expect(rowMode(data('running'), '', true)).toBe('none')
+    expect(rowMode(data('running'), '   \n ', true)).toBe('none')
+    expect(rowMode(data('running'), '', false)).toBe('none')
+  })
+
+  test('a prose stream is markdown, not a program placeholder', () => {
+    expect(rowMode(data('running'), 'Here is the comparison', true)).toBe('partial')
     expect(rowMode(data('running'), 'root = Stack([', false)).toBe('partial')
-    expect(rowMode(data('running'), '', false)).toBe('empty')
   })
 
   test('a settled answer is a program only when it looks like one', () => {
@@ -125,5 +132,11 @@ describe('rowMode', () => {
 
   test('an empty settled answer paints nothing', () => {
     expect(rowMode(data('settled'), '   ', false)).toBe('empty')
+  })
+
+  test('programStarted only fires once a statement has begun', () => {
+    expect(programStarted('root = Stack([])')).toBe(true)
+    expect(programStarted('ro')).toBe(false)
+    expect(programStarted('Here is a table:')).toBe(false)
   })
 })

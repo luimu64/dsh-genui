@@ -72,7 +72,9 @@ export function OpenUIRow({ node }: OpenUIRowProps): ReactNode {
   const allowGeneration = live || allow
   const provider = useMemo(() => makeToolProvider({ allowGeneration }), [allowGeneration])
 
-  if (mode === 'empty') return null
+  // Nothing to paint and nothing to say: no row at all (an empty settled answer with no
+  // reasoning behind it).
+  if ((mode === 'empty' || mode === 'none') && !reasoning) return null
 
   return (
     <div className="genui-row" data-genui-step={key}>

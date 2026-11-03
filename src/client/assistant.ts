@@ -84,20 +84,37 @@ export function looksLikeOpenUI(text: string): boolean {
   return /^\s*root\s*=/m.test(programText(text))
 }
 
-export type RowMode = 'building' | 'partial' | 'program' | 'text' | 'empty'
+export type RowMode = 'building' | 'partial' | 'program' | 'text' | 'empty' | 'none'
+
+/** Has the answer started looking like a program yet? Used only to pick the placeholder. */
+export function programStarted(text: string): boolean {
+  return /^\s*(?:root|[A-Za-z_$][\w$]*)\s*=/.test(text.trimStart())
+}
 
 /**
  * What the row paints:
- * - `building`: the live step has not finished, so its text may still be a half program.
- * - `partial`: a step that never streamed here and never settled — the session log's frozen
- *   prefix of an interrupted turn. It is history, so it must not shimmer forever.
+ * - `none`: the step is running and has produced no text yet (reasoning only).
+ * - `building`: the live step has begun writing a program, which cannot be parsed until it
+ *   is finished.
+ * - `partial`: text is streaming (or a turn was frozen mid-stream) and is not a program, so
+ *   it is rendered as markdown.
  * - `program`: a settled answer to hand to the OpenUI renderer.
  * - `text`: a settled answer that is not a program. Never blank an answer.
  * - `empty`: nothing to say; the row renders nothing rather than an empty frame.
  */
 export function rowMode(data: Pick<AssistantRowData, 'status'>, text: string, live: boolean): RowMode {
   const trimmed = text.trim()
-  if (trimmed === '') return data.status === 'running' && live ? 'building' : 'empty'
-  if (data.status === 'running') return live ? 'building' : 'partial'
+  if (data.status === 'running') {
+    // Nothing written yet — reasoning only. There is no interface to build, and a permanent
+    // "Building interface…" bar through every reasoning phase is noise, so paint nothing and
+    // let the reasoning row speak for itself.
+    if (trimmed === '') return 'none'
+    // A program is being written: parsing it now would only produce errors, so shimmer.
+    if (live && programStarted(trimmed)) return 'building'
+    // Prose is being written (mode off, or a model that ignored the format): stream it as
+    // markdown the way the harness normally does.
+    return 'partial'
+  }
+  if (trimmed === '') return 'empty'
   return looksLikeOpenUI(text) ? 'program' : 'text'
 }

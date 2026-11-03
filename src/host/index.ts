@@ -10,7 +10,7 @@ import { createModeStore } from './mode'
 import { registerCommands } from './commands'
 
 export const name = 'dsh-genui'
-export const inject = ['webServer', 'systemPrompt', 'agents']
+export const inject = ['webServer', 'systemPrompt']
 export { Config }
 
 export function apply(ctx: Context, config: GenuiConfig): void {
