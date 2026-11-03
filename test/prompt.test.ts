@@ -42,6 +42,15 @@ describe('openuiPrompt', () => {
     expect(text).toContain('root = Stack(')
   })
 
+  test('is written to sit beside the harness prompt, not instead of it', () => {
+    const text = openuiPrompt()
+    expect(text.startsWith('## Answer format')).toBe(true)
+    // The old opening claimed the entire system prompt; that breaks as an additive section.
+    expect(text).not.toContain('Your ENTIRE response must be valid openui-lang code')
+    expect(text).toContain('only the final assistant message of a turn is a program')
+    expect(text).toContain('You are the same assistant')
+  })
+
   test('names the two tools the harness actually exposes', () => {
     const text = openuiPrompt()
     expect(text).toContain('web_search(queries: string[])')
@@ -59,7 +68,7 @@ describe('openuiPrompt', () => {
 })
 
 describe('registerAgentPrompt', () => {
-  test('gives the main agent the complete prompt and a render list, subagents neither', () => {
+  test('gives the main agent the OpenUI section and a render list, subagents neither', () => {
     const sections: any[] = []
     const contexts: any[] = []
     const listeners = new Map<string, (payload: any) => unknown>()
@@ -108,16 +117,12 @@ describe('registerAgentPrompt', () => {
     created!({ agent: agent('s2', 'subagent') })
 
     expect(sections).toHaveLength(1)
-    expect(sections[0]).toMatchObject({ name: 'genui:openui', complete: true })
+    expect(sections[0].name).toBe('genui:openui')
+    // Additive: the harness prompt survives, so this must never claim to be all of it.
+    expect(sections[0].complete).toBeUndefined()
     expect(sections[0].text).toContain('root = Stack(')
     expect(contexts).toHaveLength(1)
     expect(contexts[0].name).toBe('genui:renders')
     expect(contexts[0].text()).toBe('')
-
-    // A preset that already owns the complete prompt must not produce a second one: two
-    // effective complete sections make assembly throw for every turn of that session.
-    created!({ agent: agent('s3', undefined, 'minimal') })
-    expect(sections).toHaveLength(1)
-    expect(contexts).toHaveLength(1)
   })
 })

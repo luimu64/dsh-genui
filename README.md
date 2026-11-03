@@ -29,7 +29,7 @@ User prompt
               -> GenImage / GenImageSet renders the URL or a missing frame
 ```
 
-- `src/host/` — Cordis plugin: config, prompt registration (main agent only), ComfyUI
+- `src/host/` — Cordis plugin: config, prompt registration (additive, main agent only), ComfyUI
   graph mutation, ComfyUI client, render store, generation service, `/genui/*` routes.
 - `src/client/` — browser plugin: the assistant-row renderer, the OpenUI renderer, the genui
   component library, the cache-first query provider, and the image styles.
@@ -125,6 +125,21 @@ origin check only stops a browser on another site from using them.
 
 One ComfyUI job per batch: `batch_size = count`, one history entry, N images. All frames of
 a batch appear together; a failed frame fails the request.
+
+## The prompt is additive
+
+The OpenUI section is registered as an ordinary ordered section (`genui:openui`, order 950),
+never as `complete: true`. The harness keeps its identity, tool guidance, sandbox and
+approval policy; this only adds the answer format on top, which is why it can sit in a profile
+you also use for coding. Two consequences:
+
+- the answer format is a rule the model follows, not the whole prompt, so a turn that goes
+  wrong degrades into a normal harness answer rather than into nothing;
+- it composes with every agent preset, including the shipped `minimal` preset that owns a
+  complete persona section (a complete section of our own would have made assembly throw).
+
+The separate `genui` profile is therefore a convenience, not a necessity: it keeps the OpenUI
+answer style (and the 3.8 MB client bundle that paints it) off the instance used for other work.
 
 ## The assistant row
 
