@@ -35,6 +35,9 @@ export function renderList(imagesDir: string, limit = 20): string {
   return ['### Renders in this conversation', '', ...lines].join('\n')
 }
 
+/** Presets whose persona already claims the whole system prompt (`complete: true`). */
+const COMPLETE_PRESETS = new Set(['minimal'])
+
 export function registerAgentPrompt(ctx: Context, config: Config): void {
   const prompt = openuiPrompt()
   const disposers = new Map<string, () => void>()
@@ -44,9 +47,19 @@ export function registerAgentPrompt(ctx: Context, config: Config): void {
     disposers.clear()
   })
 
+  const log = ctx.logger('dsh-genui')
+
   ctx.on('agent/created', ({ agent }) => {
     // Subagents keep DSH's normal prompt and return normal text.
     if (agent.session.header.origin === 'subagent') return undefined
+    // A complete section is exclusive by contract: the shipped `minimal` agent preset also
+    // registers one, and two of them make prompt assembly throw for every turn. Skipping is
+    // the only safe answer — that preset's agent then behaves like a normal chat instead of
+    // failing to run at all.
+    if (COMPLETE_PRESETS.has(agent.session.header.agentPreset ?? '')) {
+      log.warn('agent preset %s owns the complete system prompt; OpenUI is off for this session', agent.session.header.agentPreset)
+      return undefined
+    }
     const offSection = agent.ctx.systemPrompt.section({
       name: 'genui:openui',
       order: 100,

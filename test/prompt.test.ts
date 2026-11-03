@@ -66,6 +66,7 @@ describe('registerAgentPrompt', () => {
     const disposers: (() => void)[] = []
 
     const ctx = {
+      logger: () => ({ warn() {}, info() {}, error() {}, debug() {} }),
       effect(fn: () => () => void) {
         disposers.push(fn())
         return () => {}
@@ -84,9 +85,9 @@ describe('registerAgentPrompt', () => {
       minPngBytes: 30_000,
     })
 
-    const agent = (id: string, origin?: 'subagent') => ({
+    const agent = (id: string, origin?: 'subagent', agentPreset?: string) => ({
       id,
-      session: { header: { origin } },
+      session: { header: { origin, agentPreset } },
       ctx: {
         systemPrompt: {
           section(value: any) {
@@ -112,5 +113,11 @@ describe('registerAgentPrompt', () => {
     expect(contexts).toHaveLength(1)
     expect(contexts[0].name).toBe('genui:renders')
     expect(contexts[0].text()).toBe('')
+
+    // A preset that already owns the complete prompt must not produce a second one: two
+    // effective complete sections make assembly throw for every turn of that session.
+    created!({ agent: agent('s3', undefined, 'minimal') })
+    expect(sections).toHaveLength(1)
+    expect(contexts).toHaveLength(1)
   })
 })
