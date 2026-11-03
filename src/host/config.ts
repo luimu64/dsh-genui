@@ -1,8 +1,6 @@
 import Schema from '@deepseek-ai/schemastery'
 
 export interface Config {
-  /** Ask the main agent to answer as an OpenUI program. Toggle at runtime with /openui. */
-  openui: boolean
   /** Base URL of the local ComfyUI. */
   comfyBase: string
   /** Where renders are written and served from. */
@@ -16,7 +14,6 @@ export interface Config {
 }
 
 export const Config: Schema<Config> = Schema.object({
-  openui: Schema.boolean().default(true),
   comfyBase: Schema.string().default('http://127.0.0.1:8188'),
   imagesDir: Schema.string().default('/home/luimu/.local/share/openui-harness/images'),
   maxBatch: Schema.number().default(8),

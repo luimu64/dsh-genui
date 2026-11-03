@@ -58,9 +58,30 @@ export function reasoningText(blocks: readonly AssistantBlock[]): string {
     .join('\n\n')
 }
 
+/** One openui-lang statement: `root = ...` or `name = ...`. */
+const STATEMENT = /^\s*(?:root|[A-Za-z_$][\w$]*)\s*=/
+
+/**
+ * The program inside an answer, with the wrappers a model adds anyway removed: a markdown
+ * fence around it, or a sentence of introduction above it. A fence body is preferred when it
+ * holds the program, because that is where the model put it; otherwise the answer is cut at
+ * its first statement line.
+ *
+ * This is why a fenced program no longer reaches the parser as ```openui … ``` and dies.
+ */
+export function programText(text: string): string {
+  const fenced = /```[A-Za-z0-9_-]*[ \t]*\r?\n([\s\S]*?)```/.exec(text)
+  if (fenced && STATEMENT.test(fenced[1].trim())) return fenced[1].trim()
+
+  const lines = text.split('\n')
+  const start = lines.findIndex((line) => /^\s*root\s*=/.test(line) || STATEMENT.test(line))
+  if (start <= 0) return text.trim()
+  return lines.slice(start).join('\n').trim()
+}
+
 /** Does this answer look like an openui-lang program rather than prose? */
 export function looksLikeOpenUI(text: string): boolean {
-  return /^\s*root\s*=/m.test(text)
+  return /^\s*root\s*=/m.test(programText(text))
 }
 
 export type RowMode = 'building' | 'partial' | 'program' | 'text' | 'empty'

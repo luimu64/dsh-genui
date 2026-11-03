@@ -108,6 +108,8 @@ The host routes 404 until the bundle row activates. If they do, check the DSH lo
 | `/genui/edit` | POST | `{ req: { prompt, source?, steps?, seed?, lora?, loraStrength? } }` |
 | `/genui/images/<file>` | GET | `image/png`, immutable cache; the file name is validated |
 | `/genui/health` | GET | `{ comfy: boolean }` |
+| `/genui/mode` | GET | `{ sessions }`, or `{ session, openui }` with `?session=` |
+| `/genui/mode` | POST | `{ session, enabled }` → `{ session, openui }` |
 
 All routes require a loopback origin (`Origin`/`Sec-Fetch-Site`); POSTs must declare
 `application/json`. The bind stays on loopback: these routes are unauthenticated, so the
@@ -128,23 +130,39 @@ a batch appear together; a failed frame fails the request.
 
 ## The mode
 
-Whether the assistant answers as an interface program is a runtime mode, not a profile
-decision. `/openui` in the composer flips it for the whole instance:
+Whether the assistant answers as an interface program is a **per-conversation** mode, not a
+profile decision and not an instance-wide flag. `/openui` in the composer acts on the
+conversation you typed it in:
 
 ```text
-/openui off     → the next answer is ordinary markdown
-/openui on      → the next answer is an OpenUI program
-/openui         → report the current mode
+/openui on      → this conversation answers as an OpenUI program
+/openui off     → this conversation answers in ordinary markdown
+/openui         → report this conversation's mode
 ```
 
-The flag lives in `$DSH_HOME/genui-mode.json` (or `~/.dsh/genui-mode.json`), so a restart
-keeps it; `openui: true` in the plugin config is only the initial default. Both providers are
-evaluated at every prompt assembly, so a toggle lands on the next turn without recreating the
-agent — and with the mode off the section and the render list both render to nothing.
+Conversations start **off**. The set of enabled session ids lives in
+`$DSH_HOME/genui-mode.json` (or `~/.dsh/genui-mode.json`), so a restart keeps each
+conversation's choice. Toggling one conversation cannot change another's answers.
+
+Two details make the toggle work in practice:
+
+- the section is attached to **every main agent**, including the ones already open when the
+  plugin loads (`ctx.agents.list()` at apply), because an agent that was created before the
+  plugin existed would otherwise never receive it — that is why a conversation could answer in
+  markdown with the mode nominally on;
+- the section text and the render list are providers read at every assembly, so the toggle
+  lands on the next turn without recreating the agent. Off renders both to nothing.
 
 The client keeps painting either shape: a program goes to the OpenUI renderer, prose goes to
 the harness's own markdown renderer. Turning the mode off cannot leave the transcript blank or
 unformatted.
+
+```bash
+curl -s 'http://127.0.0.1:3080/genui/mode'                       # every session that is on
+curl -s 'http://127.0.0.1:3080/genui/mode?session=<session-id>'
+curl -s -X POST -H 'content-type: application/json' -H 'origin: http://127.0.0.1:3080' \
+  --data '{"session":"<session-id>","enabled":true}' http://127.0.0.1:3080/genui/mode
+```
 
 ## The prompt is additive
 

@@ -1,21 +1,26 @@
 /**
- * OpenUI mode: whether the main agent is asked to answer in openui-lang.
+ * OpenUI mode: whether *this conversation* is asked to answer in openui-lang.
  *
- * It is a mode, not a profile decision: one instance can be a normal coding harness and still
- * build interfaces when the user asks. The switch is persisted next to the DSH home so a
- * restart does not silently change what the assistant does.
+ * Per session, not per instance. A harness used for everything cannot have one global switch:
+ * turning it on for one conversation would rewrite the answer format of every other one, and
+ * an agent only gets its prompt sections when it is created, so a global flag also made old
+ * and new conversations disagree. `/openui on` in a conversation enables that conversation,
+ * and nothing else.
  *
- * Turning it off only changes the instruction; the client keeps painting both shapes, because
- * a model that ignores the format still has to be readable.
+ * The set is persisted next to the DSH home, keyed by session id, so a restart keeps each
+ * conversation's choice.
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 
 export interface ModeStore {
-  enabled(): boolean
-  set(enabled: boolean): void
-  /** Where the flag lives; surfaced by the command and the route. */
+  /** Whether this session's answers are OpenUI programs. */
+  isOn(sessionId: string): boolean
+  set(sessionId: string, on: boolean): void
+  /** Session ids currently on, for status and for the debug route. */
+  sessions(): string[]
+  /** Where the set lives. */
   readonly file: string
 }
 
@@ -24,29 +29,46 @@ export function modeFile(env: NodeJS.ProcessEnv = process.env): string {
   return join(home, 'genui-mode.json')
 }
 
-function readFlag(file: string): boolean | undefined {
+function readSessions(file: string): string[] {
   try {
-    if (!existsSync(file)) return undefined
-    const parsed = JSON.parse(readFileSync(file, 'utf8')) as { openui?: unknown }
-    return typeof parsed.openui === 'boolean' ? parsed.openui : undefined
+    if (!existsSync(file)) return []
+    const parsed = JSON.parse(readFileSync(file, 'utf8')) as { sessions?: unknown; openui?: unknown }
+    if (Array.isArray(parsed.sessions)) {
+      return [...new Set(parsed.sessions.filter((id): id is string => typeof id === 'string' && id.length > 0))]
+    }
+    // The first shape was one instance-wide boolean; it cannot name a session, so it is
+    // dropped rather than guessed at.
+    return []
   } catch {
-    return undefined
+    return []
   }
 }
 
-export function createModeStore(defaultEnabled: boolean, file: string = modeFile()): ModeStore {
-  let enabled = readFlag(file) ?? defaultEnabled
+export function createModeStore(file: string = modeFile()): ModeStore {
+  let on = new Set(readSessions(file))
+
+  const persist = () => {
+    try {
+      mkdirSync(dirname(file), { recursive: true })
+      const temp = `${file}.${process.pid}.tmp`
+      writeFileSync(temp, `${JSON.stringify({ sessions: [...on] }, null, 2)}\n`)
+      renameSync(temp, file)
+    } catch {
+      // A read-only home costs a restart's worth of memory, never the turn.
+    }
+  }
+
   return {
     file,
-    enabled: () => enabled,
-    set(next: boolean) {
-      enabled = next
-      try {
-        mkdirSync(dirname(file), { recursive: true })
-        writeFileSync(file, `${JSON.stringify({ openui: next }, null, 2)}\n`)
-      } catch {
-        // A read-only home costs a restart's worth of memory, never the turn.
-      }
+    isOn: (sessionId) => on.has(sessionId),
+    set: (sessionId, next) => {
+      const changed = next ? !on.has(sessionId) : on.has(sessionId)
+      if (!changed) return
+      on = new Set(on)
+      if (next) on.add(sessionId)
+      else on.delete(sessionId)
+      persist()
     },
+    sessions: () => [...on],
   }
 }

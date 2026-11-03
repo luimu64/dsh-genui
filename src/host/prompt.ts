@@ -40,38 +40,54 @@ export function registerAgentPrompt(ctx: Context, config: Config, mode: ModeStor
   const prompt = openuiPrompt()
   const disposers = new Map<string, () => void>()
 
-  ctx.effect(() => () => {
-    for (const dispose of disposers.values()) dispose()
-    disposers.clear()
-  })
+  const detach = (agentId: string) => {
+    disposers.get(agentId)?.()
+    disposers.delete(agentId)
+  }
 
-  ctx.on('agent/created', ({ agent }) => {
+  const attach = (agent: { id: string; session: any; ctx: Context }): void => {
     // Subagents keep DSH's normal prompt and return normal text.
-    if (agent.session.header.origin === 'subagent') return undefined
+    if (agent.session.header.origin === 'subagent') return
+    const agentId = String(agent.id)
+    if (disposers.has(agentId)) return
+    const sessionId = String(agent.session.id)
+
     // Additive, never `complete`: the harness keeps its identity, tools, sandbox and approval
-    // policy, and this only adds the answer format on top. A complete section would replace
-    // the whole prompt, and a preset that owns one would make assembly throw.
-    // Both providers are read at every assembly, so /openui takes effect on the next turn
-    // without recreating the agent. An empty section and an empty context both contribute
-    // nothing.
+    // policy, and this only adds the answer format on top. Both providers are read at every
+    // assembly, so /openui takes effect on the next turn without recreating the agent — which
+    // is what makes the mode work in a conversation whose agent predates this plugin. An empty
+    // section and an empty context both contribute nothing.
     const offSection = agent.ctx.systemPrompt.section({
       name: 'genui:openui',
       order: 950,
-      text: () => (mode.enabled() ? prompt : ''),
+      text: () => (mode.isOn(sessionId) ? prompt : ''),
     })
     const offContext = agent.ctx.systemPrompt.context({
       name: 'genui:renders',
       order: 900,
-      text: () => (mode.enabled() ? renderList(config.imagesDir) : ''),
+      text: () => (mode.isOn(sessionId) ? renderList(config.imagesDir) : ''),
     })
-    disposers.set(agent.id, () => {
+    disposers.set(agentId, () => {
       offSection()
       offContext()
     })
+  }
+
+  // Conversations already open when this plugin loads get the section too; without this they
+  // would keep answering in markdown whatever the mode says.
+  for (const agent of ctx.agents.list()) attach(agent as any)
+
+  ctx.on('agent/created', ({ agent }) => {
+    attach(agent as any)
+    return undefined
   })
 
   ctx.on('agent/disposed', ({ agent }) => {
-    disposers.get(agent.id)?.()
-    disposers.delete(agent.id)
+    detach(String(agent.id))
+  })
+
+  ctx.effect(() => () => {
+    for (const dispose of disposers.values()) dispose()
+    disposers.clear()
   })
 }

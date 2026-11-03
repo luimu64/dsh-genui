@@ -135,14 +135,22 @@ export function registerRoutes(
       path: '/genui/mode',
       handler: (req, res) =>
         guard(req, res, async () => {
+          const url = new URL(req.url ?? '/', 'http://127.0.0.1')
           if (req.method === 'GET') {
-            sendJson(res, 200, { openui: mode.enabled() })
+            const session = url.searchParams.get('session')
+            if (!session) {
+              sendJson(res, 200, { sessions: mode.sessions() })
+              return
+            }
+            sendJson(res, 200, { session, openui: mode.isOn(session) })
             return
           }
           const body = payload(await readJson(req))
+          const session = typeof body.session === 'string' ? body.session : ''
+          if (!session) throw new HttpError(400, 'session is required')
           if (typeof body.enabled !== 'boolean') throw new HttpError(400, 'enabled must be a boolean')
-          mode.set(body.enabled)
-          sendJson(res, 200, { openui: mode.enabled() })
+          mode.set(session, body.enabled)
+          sendJson(res, 200, { session, openui: mode.isOn(session) })
         }),
     }),
 

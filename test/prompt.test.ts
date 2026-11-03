@@ -68,37 +68,16 @@ describe('openuiPrompt', () => {
 })
 
 describe('registerAgentPrompt', () => {
-  test('gives the main agent the OpenUI section and a render list, subagents neither', () => {
+  test('attaches the section to every main agent and decides per conversation', () => {
     const sections: any[] = []
     const contexts: any[] = []
     const listeners = new Map<string, (payload: any) => unknown>()
     const disposers: (() => void)[] = []
+    const on = new Set<string>()
 
-    const ctx = {
-      logger: () => ({ warn() {}, info() {}, error() {}, debug() {} }),
-      effect(fn: () => () => void) {
-        disposers.push(fn())
-        return () => {}
-      },
-      on(event: string, listener: (payload: any) => unknown) {
-        listeners.set(event, listener)
-        return () => {}
-      },
-    } as any
-
-    let openui = true
-    registerAgentPrompt(ctx, {
-      openui: true,
-      comfyBase: 'http://127.0.0.1:8188',
-      imagesDir: '/nonexistent/genui-images',
-      maxBatch: 8,
-      pollMs: 750,
-      minPngBytes: 30_000,
-    }, { enabled: () => openui, set: (next) => { openui = next }, file: '/tmp/x.json' })
-
-    const agent = (id: string, origin?: 'subagent', agentPreset?: string) => ({
+    const agent = (id: string, sessionId: string, origin?: 'subagent') => ({
       id,
-      session: { header: { origin, agentPreset } },
+      session: { id: sessionId, header: { origin } },
       ctx: {
         systemPrompt: {
           section(value: any) {
@@ -113,25 +92,56 @@ describe('registerAgentPrompt', () => {
       },
     })
 
+    // A conversation that was already open when the plugin loaded.
+    const existing = agent('a0', 's0')
+    const ctx = {
+      agents: { list: () => [existing] },
+      effect(fn: () => () => void) {
+        disposers.push(fn())
+        return () => {}
+      },
+      on(event: string, listener: (payload: any) => unknown) {
+        listeners.set(event, listener)
+        return () => {}
+      },
+    } as any
+
+    registerAgentPrompt(ctx, {
+      comfyBase: 'http://127.0.0.1:8188',
+      imagesDir: '/nonexistent/genui-images',
+      maxBatch: 8,
+      pollMs: 750,
+      minPngBytes: 30_000,
+    }, {
+      file: '/tmp/x.json',
+      isOn: (id: string) => on.has(id),
+      set: (id: string, next: boolean) => (next ? on.add(id) : on.delete(id)),
+      sessions: () => [...on],
+    })
+
     const created = listeners.get('agent/created')
     expect(created).toBeDefined()
-    created!({ agent: agent('s1') })
-    created!({ agent: agent('s2', 'subagent') })
+    created!({ agent: agent('a1', 's1') })
+    created!({ agent: agent('a2', 's2', 'subagent') })
 
-    expect(sections).toHaveLength(1)
+    // One section for the pre-existing conversation, one for the new one, none for the child.
+    expect(sections).toHaveLength(2)
     expect(sections[0].name).toBe('genui:openui')
     // Additive: the harness prompt survives, so this must never claim to be all of it.
     expect(sections[0].complete).toBeUndefined()
-    expect(sections[0].text()).toContain('root = Stack(')
-    expect(contexts).toHaveLength(1)
-    expect(contexts[0].name).toBe('genui:renders')
-    expect(contexts[0].text()).toBe('')
 
-    // The mode is read at every assembly: off contributes nothing, on brings it back.
-    openui = false
+    // Off by default, and each conversation answers for itself.
     expect(sections[0].text()).toBe('')
-    expect(contexts[0].text()).toBe('')
-    openui = true
-    expect(sections[0].text()).toContain('root = Stack(')
+    expect(sections[1].text()).toBe('')
+    on.add('s1')
+    expect(sections[0].text()).toBe('')
+    expect(sections[1].text()).toContain('root = Stack(')
+    expect(contexts[1].name).toBe('genui:renders')
+    expect(contexts[1].text()).toBe('')
+
+    // And back off again, on the next assembly, for that conversation only.
+    on.delete('s1')
+    expect(sections[1].text()).toBe('')
+    expect(contexts[1].text()).toBe('')
   })
 })

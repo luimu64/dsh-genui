@@ -10,11 +10,11 @@ import { createModeStore } from './mode'
 import { registerCommands } from './commands'
 
 export const name = 'dsh-genui'
-export const inject = ['webServer', 'systemPrompt']
+export const inject = ['webServer', 'systemPrompt', 'agents']
 export { Config }
 
 export function apply(ctx: Context, config: GenuiConfig): void {
-  const mode = createModeStore(config.openui)
+  const mode = createModeStore()
   const service = createGenuiService(config)
   ctx.effect(() => {
     const disposers = registerRoutes(ctx, service, config, mode)

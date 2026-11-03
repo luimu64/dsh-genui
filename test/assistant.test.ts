@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, test } from 'bun:test'
 import {
   assistantText,
   looksLikeOpenUI,
+  programText,
   observeStep,
   reasoningText,
   resetLiveSteps,
@@ -48,6 +49,34 @@ describe('looksLikeOpenUI', () => {
   test('prose does not', () => {
     expect(looksLikeOpenUI('Here is a normal answer.')).toBe(false)
     expect(looksLikeOpenUI('Root cause is the parser.')).toBe(false)
+  })
+})
+
+describe('programText', () => {
+  test('leaves a bare program alone', () => {
+    expect(programText('root = Stack([])')).toBe('root = Stack([])')
+  })
+
+  test('unwraps a fenced program', () => {
+    expect(programText('```openui\nroot = Stack([])\n```')).toBe('root = Stack([])')
+    expect(programText('```\nroot = Stack([])\n```')).toBe('root = Stack([])')
+  })
+
+  test('drops an introduction above the program', () => {
+    expect(programText('Here is the comparison you asked for:\n\nroot = Stack([])')).toBe('root = Stack([])')
+  })
+
+  test('keeps helper statements that come before root', () => {
+    expect(programText('card = Card([])\nroot = Stack([card])')).toBe('card = Card([])\nroot = Stack([card])')
+  })
+
+  test('does not turn prose or unrelated code into a program', () => {
+    expect(programText('Here is a normal answer.')).toBe('Here is a normal answer.')
+    expect(looksLikeOpenUI('```js\nconst x = 1\n```')).toBe(false)
+  })
+
+  test('a fenced program is recognised', () => {
+    expect(looksLikeOpenUI('```openui\nroot = Stack([])\n```')).toBe(true)
   })
 })
 

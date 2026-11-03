@@ -31,38 +31,48 @@ describe('parseModeCommand', () => {
 })
 
 describe('modeMessage', () => {
-  test('says what the next answer will be', () => {
-    expect(modeMessage(true)).toContain('on')
-    expect(modeMessage(false)).toContain('off')
+  test('says what the next answer will be, and for whom', () => {
+    expect(modeMessage(true)).toContain('next answer')
+    expect(modeMessage(true)).toContain('this conversation')
+    expect(modeMessage(false)).toContain('markdown')
   })
 })
 
 describe('createModeStore', () => {
-  test('defaults from config when nothing is stored', async () => {
-    const file = await tempFile()
-    expect(createModeStore(true, file).enabled()).toBe(true)
-    expect(createModeStore(false, file).enabled()).toBe(false)
+  test('is off for every conversation until it is turned on', async () => {
+    const store = createModeStore(await tempFile())
+    expect(store.isOn('s1')).toBe(false)
+    expect(store.sessions()).toEqual([])
   })
 
-  test('persists a toggle and survives a new store', async () => {
-    const file = await tempFile()
-    const store = createModeStore(true, file)
-    store.set(false)
-    expect(store.enabled()).toBe(false)
-    expect(JSON.parse(await readFile(file, 'utf8'))).toEqual({ openui: false })
-    expect(createModeStore(true, file).enabled()).toBe(false)
+  test('one conversation being on says nothing about another', async () => {
+    const store = createModeStore(await tempFile())
+    store.set('s1', true)
+    expect(store.isOn('s1')).toBe(true)
+    expect(store.isOn('s2')).toBe(false)
   })
 
-  test('a stored flag wins over the config default', async () => {
+  test('persists the set and survives a new store', async () => {
+    const file = await tempFile()
+    const store = createModeStore(file)
+    store.set('s1', true)
+    store.set('s2', true)
+    store.set('s1', false)
+    expect(JSON.parse(await readFile(file, 'utf8'))).toEqual({ sessions: ['s2'] })
+    expect(createModeStore(file).isOn('s2')).toBe(true)
+    expect(createModeStore(file).isOn('s1')).toBe(false)
+  })
+
+  test('the old instance-wide shape cannot enable a conversation', async () => {
     const file = await tempFile()
     await writeFile(file, JSON.stringify({ openui: true }))
-    expect(createModeStore(false, file).enabled()).toBe(true)
+    expect(createModeStore(file).sessions()).toEqual([])
   })
 
   test('junk is ignored instead of thrown', async () => {
     const file = await tempFile()
     await writeFile(file, '{not json')
-    expect(createModeStore(true, file).enabled()).toBe(true)
+    expect(createModeStore(file).sessions()).toEqual([])
   })
 
   test('lives under the DSH home', () => {
@@ -71,7 +81,7 @@ describe('createModeStore', () => {
 })
 
 describe('/openui', () => {
-  function harness(store: ModeStore) {
+  function harness(store: ModeStore, sessionId = 's1') {
     const registered: any[] = []
     const injected: string[][] = []
     const ctx: any = {
@@ -81,34 +91,43 @@ describe('/openui', () => {
       },
     }
     registerCommands(ctx, store)
-    return { injected, definition: registered[0] }
+    return {
+      injected,
+      definition: registered[0],
+      invoke: (rawInput: string) =>
+        registered[0].handler({ agent: { session: { id: sessionId } }, rawInput }),
+    }
   }
 
   test('registers one command only when the command runtime exists', async () => {
-    const store = createModeStore(true, await tempFile())
+    const store = createModeStore(await tempFile())
     const { injected, definition } = harness(store)
     expect(injected).toEqual([['commands']])
     expect(definition.name).toBe('openui')
   })
 
-  test('toggles and reports', async () => {
-    const store = createModeStore(true, await tempFile())
-    const { definition } = harness(store)
-    expect(definition.handler({ rawInput: ' off ' })).toEqual({
-      kind: 'success',
-      text: modeMessage(false),
-    })
-    expect(store.enabled()).toBe(false)
-    expect(definition.handler({ rawInput: '' })).toEqual({
-      kind: 'success',
-      text: modeMessage(false),
-    })
+  test('toggles only the invoking conversation', async () => {
+    const store = createModeStore(await tempFile())
+    const { invoke } = harness(store, 's1')
+    expect(invoke(' off ')).toEqual({ kind: 'success', text: modeMessage(false) })
+    expect(invoke(' on ')).toEqual({ kind: 'success', text: modeMessage(true) })
+    expect(store.isOn('s1')).toBe(true)
+    expect(store.isOn('s2')).toBe(false)
+  })
+
+  test('reports the mode of the conversation it was typed in', async () => {
+    const store = createModeStore(await tempFile())
+    store.set('s1', true)
+    const mine = harness(store, 's1')
+    const other = harness(store, 's2')
+    expect(mine.invoke('')).toEqual({ kind: 'success', text: modeMessage(true) })
+    expect(other.invoke('')).toEqual({ kind: 'success', text: modeMessage(false) })
   })
 
   test('refuses an unknown word without changing the mode', async () => {
-    const store = createModeStore(true, await tempFile())
-    const { definition } = harness(store)
-    expect(definition.handler({ rawInput: 'purple' }).kind).toBe('error')
-    expect(store.enabled()).toBe(true)
+    const store = createModeStore(await tempFile())
+    const { invoke } = harness(store)
+    expect(invoke('purple').kind).toBe('error')
+    expect(store.isOn('s1')).toBe(false)
   })
 })

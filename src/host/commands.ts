@@ -1,5 +1,5 @@
 /**
- * `/openui` — flip the answer-format mode from the composer, without editing a profile.
+ * `/openui` — flip the answer format of the conversation you are in, from the composer.
  *
  * Registered through `ctx.inject` so a composition without a command runtime simply does not
  * get the command, instead of the whole plugin waiting for a service it does not need.
@@ -20,21 +20,24 @@ export function parseModeCommand(rawInput: string): boolean | undefined | 'statu
 
 export function modeMessage(enabled: boolean): string {
   return enabled
-    ? 'OpenUI mode is on: the next answer is written as an interface program.'
-    : 'OpenUI mode is off: the next answer is ordinary markdown.'
+    ? 'OpenUI is on for this conversation: the next answer is written as an interface program.'
+    : 'OpenUI is off for this conversation: answers are ordinary markdown.'
 }
 
 export function registerCommands(ctx: Context, mode: ModeStore): void {
   ctx.inject(['commands'], (scoped) => {
     scoped.commands.register({
       name: 'openui',
-      description: 'Answer as an OpenUI interface program instead of markdown',
+      description: 'Answer this conversation as OpenUI interface programs instead of markdown',
       input: { hint: 'on | off | status' },
-      handler: ({ rawInput }) => {
+      handler: ({ agent, rawInput }) => {
         const parsed = parseModeCommand(rawInput)
         if (parsed === undefined) return { kind: 'error', text: USAGE }
-        if (parsed !== 'status') mode.set(parsed)
-        return { kind: 'success', text: modeMessage(mode.enabled()) }
+        const sessionId = agent.session.id
+        // Turning it off has to work for a conversation whose agent predates the plugin, so
+        // the section is registered for every main agent and decided here, per assembly.
+        if (parsed !== 'status') mode.set(sessionId, parsed)
+        return { kind: 'success', text: modeMessage(mode.isOn(sessionId)) }
       },
     })
   })

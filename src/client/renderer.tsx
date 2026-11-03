@@ -14,7 +14,15 @@ import { makeToolProvider } from './toolProvider'
 import { friendlyErrors, repairProgram } from './repair'
 import { ReplayContext } from './replay'
 import { ImageWaitProvider, useImageAnimating } from './pending'
-import { assistantText, observeStep, reasoningText, rowMode, stepKey, type AssistantRowData } from './assistant'
+import {
+  assistantText,
+  observeStep,
+  programText,
+  reasoningText,
+  rowMode,
+  stepKey,
+  type AssistantRowData,
+} from './assistant'
 
 export interface OpenUIRowProps {
   node: { data: AssistantRowData }
@@ -94,7 +102,7 @@ export function OpenUIRow({ node }: OpenUIRowProps): ReactNode {
                 // fresh mount.
                 key={retries}
                 library={harnessLibrary}
-                response={repairProgram(text)}
+                response={repairProgram(programText(text))}
                 toolProvider={provider}
                 queryLoader={<QueryThinking />}
                 onError={(list) => setErrors(friendlyErrors(list ?? []))}
