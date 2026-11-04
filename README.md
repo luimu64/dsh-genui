@@ -83,8 +83,15 @@ Resolved by `src/host/config.ts`; every key is optional.
 | `workflows` | `[real]` | enabled workflow ids; volatile, so Settings changes it live |
 | `defaultOn` | `true` | a conversation answers as an OpenUI program unless `/openui off` says otherwise; volatile, so Settings can flip it live |
 
-One ComfyUI job per batch: `batch_size = count`, one history entry, N images, so all frames of
-a batch appear together and a failed frame fails the request.
+One ComfyUI job per image. A `count` above 1 is a *queue* owned by `src/client/batches.ts`: the
+frames are rendered one at a time and published as each lands, so a four-image request shows
+the first picture after roughly one render instead of after all four. Each frame has its own
+cache slot, so a reload or a rerun re-renders only what is missing, and a frame that fails
+keeps its error without taking the rest of the set down. The trade is throughput: separate jobs
+cannot share one model load, so a batch is slightly slower end to end than `batch_size = N`, and
+the first picture arrives far sooner.
+
+A single-image request is still one job, unchanged.
 
 ## Workflows
 
@@ -295,8 +302,8 @@ AGENTS.md     the working contract for agents: invariants, recipes, definition o
 
 ## Not in scope
 
-Chat streaming, session storage, settings UI, web access, ComfyUI itself, ComfyUI autostart,
-and progressive per-frame batch rendering. Each frame of a batch lands with the batch.
+Chat streaming, session storage, settings UI, web access, ComfyUI itself and ComfyUI
+autostart.
 
 ## License
 

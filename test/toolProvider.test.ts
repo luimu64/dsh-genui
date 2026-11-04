@@ -101,6 +101,28 @@ describe('makeToolProvider', () => {
     expect(calls).toHaveLength(0)
   })
 
+  test('count above 1 hands back one slot per frame instead of waiting for a set', async () => {
+    const prompt = 'batch slots'
+    reply = { status: 200, body: rendered(prompt) }
+    const provider = makeToolProvider({ allowGeneration: true })
+    const result = await provider.generate_image({ prompt, lane: 'real', count: 3 })
+
+    // The query resolves at once: the frames arrive through the batch store, one at a time.
+    expect(result.url).toBe('')
+    expect(result.images).toHaveLength(3)
+    expect(result.images?.every((image) => typeof image.batch === 'string')).toBe(true)
+    expect(result.images?.map((image) => image.index)).toEqual([0, 1, 2])
+    expect(result.images?.every((image) => image.total === 3)).toBe(true)
+  })
+
+  test('a stored batch is a hole per frame, never a new queue', async () => {
+    const provider = makeToolProvider({ allowGeneration: false })
+    const result = await provider.generate_image({ prompt: 'stored batch', count: 2 })
+    expect(calls).toHaveLength(0)
+    expect(result.images).toHaveLength(2)
+    expect(result.images?.every((image) => !image.url)).toBe(true)
+  })
+
   test('edit_image goes to the edit route with its source', async () => {
     reply = { status: 200, body: { ...rendered('edited'), lane: 'edit' } }
     const provider = makeToolProvider({ allowGeneration: true })

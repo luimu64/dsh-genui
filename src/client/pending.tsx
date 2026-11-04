@@ -83,7 +83,8 @@ export function ImagePlaceholder({
   height,
   children,
 }: {
-  height: number;
+  /** A number of pixels, or "100%" to fill a parent that owns the size. */
+  height: number | string;
   children?: ReactNode;
 }) {
   const store = useContext(ImageWaitContext);

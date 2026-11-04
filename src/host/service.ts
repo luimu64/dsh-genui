@@ -141,12 +141,16 @@ export function createGenuiService(
     upscale?: number
   }): Promise<GenImageOut[]> {
     const out: GenImageOut[] = []
+    const rejected: string[] = []
     for (const image of images) {
       const bytes = await comfy.fetch(image)
+      // A frame that came back as noise-sized bytes is dropped, not fatal: a batch of four
+      // used to fail as a whole because one sample was bad, which reads as "the batch is
+      // broken" when three good pictures are sitting right there. A single-image request
+      // still throws below, because then there is nothing to show.
       if (bytes.byteLength < minPngBytes) {
-        throw new Error(
-          `comfy returned a ${bytes.byteLength} byte png - failed render, not an image`,
-        )
+        rejected.push(`${image.filename} (${bytes.byteLength} bytes)`)
+        continue
       }
       const file = await saveRender(config.imagesDir, image.filename, bytes)
       out.push({
@@ -161,7 +165,13 @@ export function createGenuiService(
         file,
       })
     }
-    if (out.length === 0) throw new Error('comfy finished with no images')
+    if (out.length === 0) {
+      throw new Error(
+        rejected.length === 0
+          ? 'comfy finished with no images'
+          : `every frame of the batch came back unusable (${rejected.join(', ')}) - failed render, not an image`,
+      )
+    }
     return out
   }
 

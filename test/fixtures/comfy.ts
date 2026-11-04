@@ -14,6 +14,8 @@ export interface FakeComfyOptions {
   promptResponse?: unknown
   /** Answer `/history/:id` with this body instead of a completed entry. */
   historyEntry?: unknown
+  /** Per-file bytes for `/view`, so a batch can mix a good frame with a junk one. */
+  bytesFor?: (filename: string) => number | Uint8Array
 }
 
 export interface FakeComfy {
@@ -63,7 +65,9 @@ export async function startFakeComfy(options: FakeComfyOptions = {}): Promise<Fa
         )
       }
       if (req.method === 'GET' && url.pathname === '/view') {
-        return new Response(image as unknown as BodyInit, {
+        const asked = url.searchParams.get('filename') ?? filename
+        const served = options.bytesFor ? bytesOf(options.bytesFor(asked)) : image
+        return new Response(served as unknown as BodyInit, {
           headers: { 'content-type': 'image/png' },
         })
       }

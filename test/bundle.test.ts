@@ -149,6 +149,18 @@ describe('client bundle', () => {
     expect((document.head as any).text).toContain('--openui-text-neutral-primary: var(--dsw-alias-label-primary')
   })
 
+  test('the fullscreen viewer sizes its picture instead of letting it overflow', () => {
+    // The overlay element carries both the attribute and the class, so its rules must be a
+    // compound selector. A descendant selector matched nothing, the picture kept its natural
+    // size and a tall render ran off the screen — which reads as the viewer cropping it.
+    const { exports, document } = materialize()
+    exports.apply(fakeContext([]))
+    const css = String((document.head as any).text)
+    expect(css).not.toContain('[data-genui-overlay] .genimg-overlay > img')
+    expect(css).toContain('[data-genui-overlay].genimg-overlay > img')
+    expect(css).toMatch(/\[data-genui-overlay\]\.genimg-overlay > img \{[^}]*max-height: 100%/)
+  })
+
   test('adds the settings rows only when the settings transport is composed', () => {
     const { exports } = materialize()
 

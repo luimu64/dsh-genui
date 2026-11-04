@@ -1,8 +1,9 @@
-import { useCallback, useState } from "react";
+import { useCallback, useState, useSyncExternalStore } from "react";
 import { defineComponent } from "@openuidev/react-lang";
 import { openuiLibrary } from "@openuidev/react-ui";
 import { Button } from "@deepseek-ai/dsh-client-ui-primitives";
 import { DEFAULT_WORKFLOWS, QUALITY_IDS } from "../shared/models";
+import { batchSlots, batchVersion, subscribeBatch } from "./batches";
 import { imageUrls } from "./images";
 import { ImagePlaceholder } from "./pending";
 import { useReplay } from "./replay";
@@ -149,11 +150,14 @@ function GenFigure({
   caption,
   prompt,
   showCaption = true,
+  tile = false,
 }: {
   src: string;
   caption: string;
   prompt: string;
   showCaption?: boolean;
+  /** Fill a fixed box owned by the grid cell instead of sizing to the picture. */
+  tile?: boolean;
 }) {
   const [note, setNote] = useState("");
 
@@ -169,7 +173,7 @@ function GenFigure({
   }, [src, prompt]);
 
   const frame = (
-    <div className="genimg-frame">
+    <div className={tile ? "genimg-frame is-tile" : "genimg-frame"}>
       <img
         src={src}
         alt={caption}
@@ -216,7 +220,7 @@ function MissingFrame({
   onRetry,
   label,
 }: {
-  height: number;
+  height: number | string;
   onRetry: () => void;
   label?: string;
 }) {
@@ -259,6 +263,45 @@ const GenImage = defineComponent({
   },
 });
 
+type SlotView = { url: string; error?: string; missing?: boolean };
+
+/** The batch a set of urls belongs to, when it was queued frame by frame. */
+function batchOf(urls: unknown): string | null {
+  const first = Array.isArray(urls) ? urls[0] : null;
+  if (!first || typeof first !== "object") return null;
+  const key = (first as { batch?: unknown }).batch;
+  return typeof key === "string" ? key : null;
+}
+
+const noSubscribe = () => () => {};
+const noVersion = () => 0;
+
+/**
+ * One entry per requested image, finished or not, in request order.
+ *
+ * A running batch reads its slots from the batch store and subscribes to it, so each
+ * picture appears the moment that image is done — without re-parsing the answer or
+ * re-running its query for every frame. A set that is not a live batch (a stored answer,
+ * or a reply written before progressive rendering) falls back to the urls it carries.
+ */
+function useBatchSlots(urls: unknown): SlotView[] {
+  const key = batchOf(urls);
+  useSyncExternalStore(
+    key ? (listener) => subscribeBatch(key, listener) : noSubscribe,
+    key ? () => batchVersion(key) : noVersion,
+    key ? () => batchVersion(key) : noVersion,
+  );
+  const live = key ? batchSlots(key) : null;
+  if (live) {
+    return live.map((slot) => ({
+      url: slot.url ?? "",
+      error: slot.error,
+      missing: slot.status === "missing",
+    }));
+  }
+  return imageUrls(urls).map((url) => ({ url }));
+}
+
 const GenImageSet = defineComponent({
   name: "GenImageSet",
   description:
@@ -287,24 +330,24 @@ const GenImageSet = defineComponent({
   component: ({ props }) => {
     const [note, setNote] = useState("");
     const { allowGeneration, retry } = useReplay();
-    // One Comfy job per batch: every frame lands together, so a batch is either complete or
-    // has no URLs at all. A stored answer whose files are gone carries none, and that is a
-    // hole rather than progress.
-    const urls = imageUrls(props.urls);
+    const slots = useBatchSlots(props.urls);
+    const done = slots.filter((slot) => slot.url);
+    const failed = slots.filter((slot) => !slot.url && slot.error);
+    const gone = slots.filter((slot) => !slot.url && slot.missing);
 
     const save = useCallback(async () => {
       setNote("saving…");
       try {
-        for (let i = 0; i < urls.length; i++) {
-          await download(urls[i], downloadName(props.prompt, `-${i + 1}`));
+        for (let i = 0; i < done.length; i++) {
+          await download(done[i].url, downloadName(props.prompt, `-${i + 1}`));
         }
-        setNote(`saved ${urls.length}`);
+        setNote(`saved ${done.length}`);
       } catch (e) {
         setNote(String(e));
       }
-    }, [urls, props.prompt]);
+    }, [done, props.prompt]);
 
-    if (!urls.length) {
+    if (!slots.length) {
       // Nothing to paint and nothing coming: a stored answer whose set is gone is a hole,
       // not a shimmer that runs forever.
       if (!allowGeneration) {
@@ -316,33 +359,59 @@ const GenImageSet = defineComponent({
     return (
       <figure className="genimg">
         <div
+          className="genimg-grid"
           style={{
-            display: "grid",
-            gap: 8,
             // Sized from the request, not from how many frames have landed, so the
             // placeholders do not reflow the page as each picture arrives.
-            gridTemplateColumns: `repeat(${urls.length > 1 ? 2 : 1}, minmax(0, 1fr))`,
+            gridTemplateColumns: `repeat(${slots.length > 1 ? 2 : 1}, minmax(0, 1fr))`,
           }}
         >
-          {urls.map((url, i) => (
-            // Each finished frame is complete on its own: full-size view and download work
-            // while the rest of the set is still rendering.
-            <GenFigure
-              key={i}
-              src={url}
-              caption={`${props.prompt} (${i + 1})`}
-              prompt={`${props.prompt} (${i + 1})`}
-              showCaption={false}
-            />
+          {slots.map((slot, i) => (
+            // Every cell is a fixed box whether it holds a shimmer, a failure, a hole or a
+            // finished picture. The frame that arrives is *contained* in the box it was
+            // promised, so a batch fills in without moving anything below it.
+            <div className="genimg-cell" key={i}>
+              {slot.url ? (
+                // Each finished frame is complete on its own: full-size view and download
+                // work while the rest of the set is still rendering.
+                <GenFigure
+                  src={slot.url}
+                  caption={`${props.prompt} (${i + 1})`}
+                  prompt={`${props.prompt} (${i + 1})`}
+                  showCaption={false}
+                  tile
+                />
+              ) : slot.missing ? (
+                <MissingFrame
+                  height="100%"
+                  onRetry={retry}
+                  label={`image ${i + 1} is not saved on this machine`}
+                />
+              ) : slot.error ? (
+                <div
+                  className="genimg-loading is-failed"
+                  style={{ height: "100%" }}
+                  role="status"
+                  title={slot.error}
+                  aria-label={`image ${i + 1} failed`}
+                >
+                  could not render this picture
+                </div>
+              ) : (
+                <ImagePlaceholder height="100%">rendering…</ImagePlaceholder>
+              )}
+            </div>
           ))}
         </div>
         <figcaption>
           <span>
             {props.prompt}
-            {props.quality ? ` · ${props.quality}` : ""} · {urls.length}{" "}
-            {urls.length === 1 ? "image" : "images"}
+            {props.quality ? ` · ${props.quality}` : ""} · {done.length} of {slots.length}{" "}
+            {slots.length === 1 ? "image" : "images"}
+            {failed.length ? ` · ${failed.length} failed` : ""}
+            {gone.length ? ` · ${gone.length} not saved here` : ""}
           </span>
-          <Button variant="ghost" size="sm" onClick={() => void save()} disabled={!urls.length}>
+          <Button variant="ghost" size="sm" onClick={() => void save()} disabled={!done.length}>
             download all
           </Button>
           {note ? <span className="genimg-note">{note}</span> : null}
@@ -444,7 +513,7 @@ export const genuiPromptOptions = {
     {
       name: "generate_image",
       description:
-        "Render images with the local ComfyUI. Use only when the user asks to see, draw, sketch, render or imagine a picture, never to decorate text. Emit at most one per program. Lane \"real\" covers photographs, products, real places and realistic people: one natural-language sentence describing camera, light and lens. quality: \"fast\" (default) is a distilled model tuned for seconds per frame - use it for exploration, chat, and anything the user did not ask to be good. quality: \"high\" swaps in the undistilled checkpoint at its published settings (50 steps at CFG 3, 992x1504) and takes one to four minutes per image plus a cold model load - use it when the user says high quality, best, final, print, or asks for one image they care about. upscale adds a second sampler pass over a latent upscaled by that factor (true = 1.5, up to 2): roughly doubles the time and the file size for real extra detail - use it for wallpaper, print, or when the reader asks for sharper or bigger. count renders 1-8 variations in one batch for the same cost as one model load; use 2-4 for \"options\"/\"variations\"/\"some\", never more than 4 unless asked.",
+        "Render images with the local ComfyUI. Use only when the user asks to see, draw, sketch, render or imagine a picture, never to decorate text. Emit at most one per program. Lane \"real\" covers photographs, products, real places and realistic people: one natural-language sentence describing camera, light and lens. quality: \"fast\" (default) is a distilled model tuned for seconds per frame - use it for exploration, chat, and anything the user did not ask to be good. quality: \"high\" swaps in the undistilled checkpoint at its published settings (50 steps at CFG 3, 992x1504) and takes one to four minutes per image plus a cold model load - use it when the user says high quality, best, final, print, or asks for one image they care about. upscale adds a second sampler pass over a latent upscaled by that factor (true = 1.5, up to 2): roughly doubles the time and the file size for real extra detail - use it for wallpaper, print, or when the reader asks for sharper or bigger. count renders 1-8 variations, one after another, so each frame appears in the grid as it lands; use 2-4 for \"options\"/\"variations\"/\"some\", never more than 4 unless asked.",
       inputSchema: {
         type: "object",
         properties: {
@@ -472,7 +541,7 @@ export const genuiPromptOptions = {
           count: {
             type: "number",
             description:
-              "How many images to render in this batch, 1-8. Defaults to 1. Batches render in one queue item, so 4 costs roughly one load plus 4x sampling.",
+              "How many images to render, 1-8. Defaults to 1. Frames are queued one at a time and appear as each finishes, so the reader sees the first picture after roughly one render, not after the whole set.",
           },
           steps: {
             type: "number",

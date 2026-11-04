@@ -102,6 +102,36 @@ describe('generate', () => {
     await expect(strict.generate({ lane: 'real', prompt: 'x' })).rejects.toThrow('failed render')
     tiny.stop()
   })
+
+  test('one junk frame in a batch does not throw the good ones away', async () => {
+    const mixed = await startFakeComfy({
+      historyEntry: {
+        p1: {
+          status: { status_str: 'success', completed: true },
+          outputs: {
+            9: {
+              images: [
+                { filename: 'genui_real_1_00001_.png', subfolder: '', type: 'output' },
+                { filename: 'genui_real_1_00002_.png', subfolder: '', type: 'output' },
+                { filename: 'genui_real_1_00003_.png', subfolder: '', type: 'output' },
+              ],
+            },
+          },
+        },
+      },
+      // The middle sample came back as noise-sized bytes; the other two are real.
+      bytesFor: (name) => (name.includes('00002') ? new Uint8Array([1, 2]) : 40_000),
+    })
+    const batch = createGenuiService(
+      testConfig({ comfyBase: mixed.base, imagesDir: dir, pollMs: 10, minPngBytes: 30_000 }),
+    )
+    const result = await batch.generate({ lane: 'real', prompt: 'x', count: 3 })
+    expect(result.images.map((image) => image.file)).toEqual([
+      'genui_real_1_00001_.png',
+      'genui_real_1_00003_.png',
+    ])
+    mixed.stop()
+  })
 })
 
 describe('edit', () => {
