@@ -14,15 +14,7 @@ import { makeToolProvider } from './toolProvider'
 import { friendlyErrors, repairProgram } from './repair'
 import { ReplayContext } from './replay'
 import { ImageWaitProvider, useImageAnimating } from './pending'
-import {
-  assistantText,
-  observeStep,
-  programText,
-  reasoningText,
-  rowMode,
-  stepKey,
-  type AssistantRowData,
-} from './assistant'
+import { assistantText, observeStep, programText, rowMode, stepKey, type AssistantRowData } from './assistant'
 
 export interface OpenUIRowProps {
   node: { data: AssistantRowData }
@@ -32,18 +24,6 @@ export interface OpenUIRowProps {
 const MARKDOWN_LABELS: MarkdownLabels = {
   code: { copyLabel: 'Copy', copiedLabel: 'Copied' },
   footnotes: 'Footnotes',
-}
-
-function Reasoning({ text }: { text: string }): ReactNode {
-  if (!text) return null
-  return (
-    <details className="genui-reasoning">
-      <summary>Reasoning</summary>
-      <div className="genui-reasoning-body" style={{ whiteSpace: 'pre-wrap' }}>
-        {text}
-      </div>
-    </details>
-  )
 }
 
 /**
@@ -63,7 +43,6 @@ export function OpenUIRow({ node }: OpenUIRowProps): ReactNode {
   // that came out of the log may only display what the cache already holds.
   const live = observeStep(key, data.status)
   const text = assistantText(data.blocks)
-  const reasoning = reasoningText(data.blocks)
   const mode = rowMode(data, text, live)
 
   const [allow, setAllow] = useState(false)
@@ -72,13 +51,11 @@ export function OpenUIRow({ node }: OpenUIRowProps): ReactNode {
   const allowGeneration = live || allow
   const provider = useMemo(() => makeToolProvider({ allowGeneration }), [allowGeneration])
 
-  // Nothing to paint and nothing to say: no row at all (an empty settled answer with no
-  // reasoning behind it).
-  if ((mode === 'empty' || mode === 'none') && !reasoning) return null
+  // Nothing to paint: an empty settled answer, or a step that has written no text yet.
+  if (mode === 'empty' || mode === 'none') return null
 
   return (
     <div className="genui-row" data-genui-step={key}>
-      <Reasoning text={reasoning} />
       {mode === 'building' ? <div className="genui-building">Building interface…</div> : null}
       {mode === 'partial' || mode === 'text' ? (
         // Not a program: the harness's own renderer, so a turned-off mode or a model that
