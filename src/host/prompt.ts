@@ -22,10 +22,11 @@ import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-system-prompt'
-import { DEFAULT_WORKFLOWS } from '../shared/models'
+
 import { listRenders } from './images'
 import type { ModeStore } from './mode'
 import { workflowsOf, type Config } from './config'
+import type { WorkflowRegistry } from './workflows'
 
 const SECTION = 'genui:openui'
 const CONTEXT = 'genui:renders'
@@ -45,15 +46,15 @@ function asset(name: string): string {
  * The section the model reads, assembled from parts:
  *
  * - `prompt-core.txt` — the OpenUI catalogue and the tool surface of the default workflows;
- * - `prompt-anime.md` — only when the anime workflow is enabled, because its lane, presets
- *   and prompt conventions are dead weight (and a misdirection) everywhere else;
+ * - one section per enabled workflow that ships one (`assets/prompt-anime.md` today);
  * - `prompt-rules.md` — the hand-written harness rules, always last.
+ *
+ * The registry owns which sections exist, so a new workflow brings its own prompt text
+ * without an edit here.
  */
-export function openuiPrompt(workflows: readonly string[] = DEFAULT_WORKFLOWS): string {
-  const parts = [asset('prompt-core.txt')]
-  if (workflows.includes('anime')) parts.push(asset('prompt-anime.md'))
-  parts.push(asset('prompt-rules.md'))
-  return `${parts.join('\n\n')}\n`
+export function openuiPrompt(sections: readonly string[] = []): string {
+  const parts = [asset('prompt-core.txt'), ...sections.filter((text) => text.trim() !== ''), asset('prompt-rules.md')]
+  return `${parts.map((part) => part.trimEnd()).join('\n\n')}\n`
 }
 
 /**
@@ -73,21 +74,16 @@ function agentOf(context: unknown): any {
   return candidate && typeof candidate === 'object' ? candidate : undefined
 }
 
-export function registerAgentPrompt(ctx: Context, config: Config, mode: ModeStore): void {
-  // The workflows are a volatile field, so the section is rebuilt when the set changes -
-  // a Settings write lands on the next assembly, not the next restart - and memoised while
-  // it does not.
-  let cachedKey = ''
-  let cached = ''
-  const promptNow = (): string => {
-    const workflows = workflowsOf(config)
-    const key = workflows.join(',')
-    if (key !== cachedKey) {
-      cached = openuiPrompt(workflows)
-      cachedKey = key
-    }
-    return cached
-  }
+export function registerAgentPrompt(
+  ctx: Context,
+  config: Config,
+  mode: ModeStore,
+  registry: WorkflowRegistry,
+): void {
+  // Built per assembly rather than captured: the enabled set is a volatile field, and a
+  // workflow may also change its prompt section on disk. Three small file reads per model
+  // request is cheaper than a cache that can serve last week's prompt.
+  const promptNow = (): string => openuiPrompt(registry.prompts(workflowsOf(config)))
 
   ctx.on('system-prompt/assemble', async (assembly, context, next) => {
     const built = await next()

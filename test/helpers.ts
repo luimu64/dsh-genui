@@ -18,6 +18,7 @@ export function testConfig(overrides: TestConfigOverrides = {}): Config {
   return {
     comfyBase: 'http://127.0.0.1:8188',
     imagesDir: '/nonexistent/genui-images',
+    workflowDir: '/nonexistent/genui-workflows',
     maxBatch: 8,
     pollMs: 750,
     minPngBytes: 30_000,

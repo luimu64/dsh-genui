@@ -1,37 +1,25 @@
 /**
  * ComfyUI graph mutation.
  *
- * A request never builds a graph from scratch: `assets/*.json` holds one committed template
- * per lane, and this module clones it and changes the handful of inputs a request owns -
- * prompt, negative, size, batch, seed, steps, cfg, file prefix - plus the optional hires
- * pair. No loader node is ever written by code, so swapping a model is a template choice,
- * not a patch here.
- *
- * Which template a lane/quality/preset resolves to, and the settings it is tuned for, is the
- * registry's business (`models.ts`). This file stays model-agnostic.
+ * A request never builds a graph from scratch: the workflow registry hands this module one
+ * template plus the settings it is tuned for, and the mutation changes only the inputs a
+ * request owns - prompt, negative, size, batch, seed, steps, cfg, file prefix - plus the
+ * optional hires pair. No loader node is ever written here, so swapping or adding a model is
+ * a workflow definition, not a patch to this file.
  */
-import {
-  EDIT_LANE,
-  isLaneId,
-  isPresetId,
-  isQualityId,
-  type Lane,
-  type LaneId,
-  type PresetId,
-  type QualityId,
-} from '../shared/models'
-import { EDIT_MODEL, LANE_MODELS, modelFor, type Graph, type ModelSpec } from './models'
+import type { QualityId } from '../shared/models'
+import { EDIT_MODEL, type Graph, type WorkflowModel } from './workflows'
 
-export type { Graph, GraphNode } from './models'
-export type { Lane, PresetId as Preset, QualityId as Quality } from '../shared/models'
+export type { Graph, GraphNode } from './workflows'
+export type { QualityId as Quality } from '../shared/models'
 
 /** Images in one batch. One queue item, one model load. */
 export const MAX_BATCH = 8
-/** A high render at a fast lane's step budget is the fast graph's work at the load time. */
+/** A high render at a fast graph's step budget is that graph's work at the load time. */
 export const HIGH_MIN_STEPS = 20
 /** Below this an undistilled checkpoint has no guidance to work with and returns mush. */
 export const HIGH_MIN_CFG = 1.5
-/** Above this they overcook (burned contrast, clipped highlights) on both lanes. */
+/** Above this they overcook (burned contrast, clipped highlights). */
 export const MAX_CFG = 9
 /**
  * A second sampler pass over an upscaled latent. Below ~1.05 the extra pass costs a full
@@ -54,7 +42,7 @@ const REFINE_NODE = '22'
 export const DEFAULT_FILE_PREFIX = 'genui'
 
 export interface GenRequest {
-  lane?: Lane
+  lane?: string
   prompt: string
   width?: number
   height?: number
@@ -65,8 +53,8 @@ export interface GenRequest {
   nsfw?: boolean
   quality?: QualityId
   count?: number
-  /** Swap the anime checkpoint for a full one. Anime lane only. */
-  preset?: PresetId
+  /** A workflow-defined preset: its own graph at its own settings. */
+  preset?: string
   /** Second pass over an upscaled latent: `true` means 1.5x, or pass the factor itself. */
   upscale?: boolean | number
 }
@@ -91,100 +79,33 @@ export interface LaneDefaults {
   prefix: string
 }
 
-export function isLane(value: unknown): value is Lane {
-  return isLaneId(value) || value === EDIT_LANE
-}
-
-export function isQuality(value: unknown): value is QualityId {
-  return isQualityId(value)
-}
-
-export function isPreset(value: unknown): value is PresetId {
-  return isPresetId(value)
-}
-
-/**
- * Tolerant parse of a wire value: anything else is "no opinion", so a caller's typo falls
- * back to the lane/quality default instead of failing a render.
- */
-export function parseQuality(value: unknown): QualityId | undefined {
-  return isQualityId(value) ? value : undefined
-}
-
-export function parseLane(value: unknown): Lane | undefined {
-  return isLane(value) ? value : undefined
-}
-
-export function parsePreset(value: unknown): PresetId | undefined {
-  return isPresetId(value) ? value : undefined
-}
-
-function defaultsOf(spec: ModelSpec, filePrefix: string): LaneDefaults {
+/** The settings a resolved model is tuned for, at the configured file prefix. */
+export function defaultsFor(model: WorkflowModel, filePrefix = DEFAULT_FILE_PREFIX): LaneDefaults {
   return {
-    width: spec.width,
-    height: spec.height,
-    steps: spec.steps,
-    cfg: spec.cfg,
-    prefix: `${filePrefix}_${spec.suffix}`,
+    width: model.width,
+    height: model.height,
+    steps: model.steps,
+    cfg: model.cfg,
+    prefix: `${filePrefix}_${model.suffix}`,
   }
-}
-
-/** The settings a lane and quality are tuned for, at the configured file prefix. */
-export function qualityDefaults(
-  lane: LaneId,
-  quality: QualityId,
-  filePrefix = DEFAULT_FILE_PREFIX,
-): LaneDefaults {
-  return defaultsOf(LANE_MODELS[lane][quality], filePrefix)
-}
-
-/**
- * A preset pins the published settings of one full checkpoint, so `quality` does not reach
- * it: a distilled budget would return mush from an undistilled model, and there is no
- * cheaper honest setting.
- */
-export function presetDefaults(preset: PresetId, filePrefix = DEFAULT_FILE_PREFIX): LaneDefaults {
-  return defaultsOf(modelFor('anime', 'fast', preset), filePrefix)
-}
-
-/** The defaults that actually apply: a preset if one was asked for, else the lane/quality pair. */
-export function renderDefaults(
-  lane: LaneId,
-  quality: QualityId,
-  preset?: PresetId,
-  filePrefix = DEFAULT_FILE_PREFIX,
-): LaneDefaults {
-  return defaultsOf(modelFor(lane, quality, preset), filePrefix)
 }
 
 /**
  * Explicit `steps` are honoured inside an envelope the quality can actually run: a high
- * render never drops to a fast lane's step budget. Explicit values above the floor pass
+ * render never drops to a fast graph's step budget. Explicit values above the floor pass
  * through untouched.
  */
-export function effectiveSteps(
-  req: GenRequest,
-  lane: LaneId,
-  quality: QualityId,
-  preset?: PresetId,
-): number {
-  const fallback = renderDefaults(lane, quality, preset).steps
+export function effectiveSteps(req: GenRequest, model: WorkflowModel, quality: QualityId): number {
   const asked = typeof req.steps === 'number' && Number.isFinite(req.steps) ? Math.round(req.steps) : undefined
-  if (preset || quality === 'fast') return Math.max(asked ?? fallback, 1)
-  return Math.max(asked ?? fallback, HIGH_MIN_STEPS)
+  if (req.preset || quality === 'fast') return Math.max(asked ?? model.steps, 1)
+  return Math.max(asked ?? model.steps, HIGH_MIN_STEPS)
 }
 
-/** Same rule for CFG: the undistilled checkpoints are floored and capped. */
-export function effectiveCfg(
-  req: GenRequest,
-  lane: LaneId,
-  quality: QualityId,
-  preset?: PresetId,
-): number {
-  const fallback = renderDefaults(lane, quality, preset).cfg
+/** Same rule for CFG: undistilled checkpoints are floored and capped. */
+export function effectiveCfg(req: GenRequest, model: WorkflowModel, quality: QualityId): number {
   const asked = typeof req.cfg === 'number' && Number.isFinite(req.cfg) ? req.cfg : undefined
-  if (preset || quality === 'fast') return asked ?? fallback
-  return Math.min(Math.max(asked ?? fallback, HIGH_MIN_CFG), MAX_CFG)
+  if (req.preset || quality === 'fast') return asked ?? model.cfg
+  return Math.min(Math.max(asked ?? model.cfg, HIGH_MIN_CFG), MAX_CFG)
 }
 
 /**
@@ -218,46 +139,35 @@ export function stripContentNegatives(graph: Graph): void {
   graph['4'].inputs.text = kept.join(', ')
 }
 
-/** Clone the template a request resolves to. */
-function template(lane: LaneId, quality: QualityId, preset?: PresetId): Graph {
-  return structuredClone(modelFor(lane, quality, preset).graph) as Graph
-}
-
 export function buildGraph(
+  model: WorkflowModel,
   req: GenRequest,
   seed: number,
   maxBatch = MAX_BATCH,
   filePrefix = DEFAULT_FILE_PREFIX,
 ): Graph {
-  const lane = parseLane(req.lane) ?? 'real'
-  if (lane === EDIT_LANE) throw new Error('the edit lane needs edit_image (it takes a source image)')
-  const preset = parsePreset(req.preset)
-  if (preset && lane !== 'anime') {
-    throw new Error(`preset "${preset}" is a full anime checkpoint: it needs lane "anime"`)
-  }
-  const quality = parseQuality(req.quality) ?? 'fast'
-  const model = modelFor(lane, quality, preset)
-  const graph = template(lane, quality, preset)
+  const graph = structuredClone(model.graph) as Graph
+  const quality = req.quality ?? 'fast'
 
   // A booru-tag template carries its style prefix on node 3; the user prompt is appended to
-  // it. A caption lane wants the text verbatim: it is a natural-language model.
-  const carried = String(graph['3'].inputs.text ?? '')
+  // it. A caption model wants the text verbatim.
+  const carried = String(graph['3']?.inputs?.text ?? '')
   const prompt = req.prompt.trim()
   graph['3'].inputs.text = model.carriesStyle && !req.nsfw ? `${carried}${prompt}` : prompt
 
   if (req.nsfw) stripContentNegatives(graph)
   if (typeof req.negative === 'string') graph['4'].inputs.text = req.negative
 
-  const defaults = renderDefaults(lane, quality, preset, filePrefix)
+  const defaults = defaultsFor(model, filePrefix)
   const width = req.width ?? defaults.width
   const height = req.height ?? defaults.height
-  const steps = effectiveSteps(req, lane, quality, preset)
+  const steps = effectiveSteps(req, model, quality)
   graph['5'].inputs.width = width
   graph['5'].inputs.height = height
   graph['5'].inputs.batch_size = effectiveCount(req, maxBatch)
   graph['6'].inputs.seed = seed
   graph['6'].inputs.steps = steps
-  graph['6'].inputs.cfg = effectiveCfg(req, lane, quality, preset)
+  graph['6'].inputs.cfg = effectiveCfg(req, model, quality)
   graph['9'].inputs.filename_prefix = `${defaults.prefix}_${seed}`
 
   const upscale = effectiveUpscale(req, width, height)

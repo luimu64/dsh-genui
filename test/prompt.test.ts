@@ -6,6 +6,14 @@ import { join } from 'node:path'
 import { openuiPrompt, registerAgentPrompt, renderList } from '../src/host/prompt'
 import { saveRender } from '../src/host/images'
 import { testConfig } from './helpers'
+import { createWorkflowRegistry } from '../src/host/workflows'
+
+/** The anime workflow's prompt section, read the way the registry reads it. */
+function animeSection(): string {
+  const registry = createWorkflowRegistry({ dir: '/nonexistent/genui-workflows' })
+  const [section] = registry.prompts(['anime'])
+  return section ?? ''
+}
 
 async function tempDir() {
   return mkdtemp(join(tmpdir(), 'genui-'))
@@ -53,7 +61,7 @@ describe('openuiPrompt', () => {
   })
 
   test('enabling the anime workflow appends its section, before the rules', () => {
-    const text = openuiPrompt(['real', 'anime'])
+    const text = openuiPrompt([animeSection()])
     expect(text).toContain('Optional workflow: anime')
     expect(text).toContain('lane: "anime"')
     expect(text).toContain('preset')
@@ -107,14 +115,19 @@ describe('registerAgentPrompt', () => {
       },
     } as any
 
-    registerAgentPrompt(ctx, testConfig({ defaultOn: false }), {
-      file: '/tmp/x.json',
-      defaultOn: false,
-      isOn: (id: string) => on.has(id),
-      set: (id: string, next: boolean) => (next ? on.add(id) : on.delete(id)),
-      sessions: () => [...on],
-      offSessions: () => [],
-    })
+    registerAgentPrompt(
+      ctx,
+      testConfig({ defaultOn: false, workflows: ['real', 'anime'] }),
+      {
+        file: '/tmp/x.json',
+        defaultOn: false,
+        isOn: (id: string) => on.has(id),
+        set: (id: string, next: boolean) => (next ? on.add(id) : on.delete(id)),
+        sessions: () => [...on],
+        offSessions: () => [],
+      },
+      createWorkflowRegistry({ dir: '/nonexistent/genui-workflows' }),
+    )
 
     const assemble = listeners.get('system-prompt/assemble')
     expect(assemble).toBeDefined()

@@ -178,6 +178,28 @@ export function registerRoutes(
     }),
 
     ctx.webServer.register({
+      kind: 'exact',
+      path: '/genui/workflows',
+      handler: (req, res) =>
+        guard(req, res, async () => {
+          if (req.method === 'GET') {
+            sendJson(res, 200, { workflows: service.workflows(), dir: service.registry.dir })
+            return
+          }
+          if (req.method !== 'POST') throw new HttpError(405, 'method not allowed')
+          const body = payload(await readJson(req))
+          if (body.action !== 'remove') throw new HttpError(400, 'unknown action')
+          const id = typeof body.id === 'string' ? body.id.trim() : ''
+          if (!id) throw new HttpError(400, 'id is required')
+          if (service.workflows().find((entry) => entry.id === id)?.builtin) {
+            throw new HttpError(400, `"${id}" is built in: disable it instead of deleting it`)
+          }
+          if (!service.removeWorkflow(id)) throw new HttpError(404, `no workflow "${id}"`)
+          sendJson(res, 200, { removed: id, workflows: service.workflows() })
+        }),
+    }),
+
+    ctx.webServer.register({
       kind: 'prefix',
       path: IMAGE_ROUTE,
       handler: (req, res) =>

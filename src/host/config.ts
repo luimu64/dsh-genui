@@ -2,7 +2,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import Schema from '@deepseek-ai/schemastery'
 import type { Volatile } from '@deepseek-ai/cosmokit'
-import { DEFAULT_WORKFLOWS, parseWorkflows, type LaneId } from '../shared/models'
+import { DEFAULT_WORKFLOWS, parseWorkflows } from '../shared/models'
 
 export interface Config {
   /** Base URL of the local ComfyUI. */
@@ -19,6 +19,11 @@ export interface Config {
   defaultOn: boolean
   /** Stem of render file names: `<filePrefix>_<lane>_<seed>.png`. */
   filePrefix: string
+  /**
+   * Where user workflow definitions are read from. Each `*.json` there defines a workflow and
+   * points at its graphs, which are read from the same folder.
+   */
+  workflowDir: string
   /**
    * Image workflows this deployment exposes. Defaults to `['real']`; add `'anime'` to opt in
    * to the anime lane, its full-checkpoint presets and its prompt section.
@@ -41,6 +46,17 @@ export function defaultImagesDir(env: NodeJS.ProcessEnv = process.env, home = ho
   return join(data, 'dsh-genui', 'images')
 }
 
+/**
+ * Where user workflow definitions live: beside the renders, in the same data directory, with
+ * `$DSH_HOME/genui/workflows` as the override a harness profile already owns.
+ */
+export function defaultWorkflowDir(env: NodeJS.ProcessEnv = process.env, home = homedir()): string {
+  const dsh = env.DSH_HOME?.trim()
+  if (dsh) return join(dsh, 'genui', 'workflows')
+  const data = env.XDG_DATA_HOME?.trim() || join(home, '.local', 'share')
+  return join(data, 'dsh-genui', 'workflows')
+}
+
 export const Config = Schema.object({
   comfyBase: Schema.string().default('http://127.0.0.1:8188'),
   imagesDir: Schema.string().default(defaultImagesDir()),
@@ -49,6 +65,7 @@ export const Config = Schema.object({
   minPngBytes: Schema.number().default(30_000),
   defaultOn: Schema.boolean().default(true),
   filePrefix: Schema.string().default('genui'),
+  workflowDir: Schema.string().default(defaultWorkflowDir()),
   workflows: Schema.array(Schema.string()).default([...DEFAULT_WORKFLOWS]).volatile(),
 })
 
@@ -57,6 +74,6 @@ export const Config = Schema.object({
  * read per request rather than captured at apply time - which is what lets the Settings row
  * take effect on the next answer instead of the next restart.
  */
-export function workflowsOf(config: Config): LaneId[] {
+export function workflowsOf(config: Config): string[] {
   return parseWorkflows(config.workflows.get())
 }

@@ -49,11 +49,15 @@ describe('generate', () => {
     expect(graph.prompt['5'].inputs.batch_size).toBe(8)
   })
 
-  test('a typo in the lane falls back to real instead of failing the render', async () => {
-    const result = await service.generate({ lane: 'video', prompt: 'x' })
+  test('an unknown lane is refused with the known list instead of rendering the wrong model', async () => {
+    const before = fake.queueCount()
+    await expect(service.generate({ lane: 'video', prompt: 'x' })).rejects.toThrow('unknown workflow "video"')
+    await expect(service.generate({ lane: 'video', prompt: 'x' })).rejects.toThrow('real, anime')
+    expect(fake.queueCount()).toBe(before)
+
+    // Omitting the lane is not a typo: it means the default workflow.
+    const result = await service.generate({ prompt: 'x' })
     expect(result.lane).toBe('real')
-    const graph = fake.queued().at(-1) as any
-    expect(graph.prompt['5'].inputs.batch_size).toBe(1)
   })
 
   test('rejects a missing prompt and the edit lane', async () => {
@@ -70,10 +74,10 @@ describe('generate', () => {
     expect(graph.prompt['6'].inputs.steps).toBe(30)
   })
 
-  test('a preset on the real lane is refused before anything is queued', async () => {
+  test('a preset the workflow does not define is refused before anything is queued', async () => {
     const before = fake.queueCount()
     await expect(service.generate({ lane: 'real', preset: 'miaoharem', prompt: 'x' })).rejects.toThrow(
-      'lane "anime"',
+      'workflow "real" has no preset "miaoharem"',
     )
     expect(fake.queueCount()).toBe(before)
   })

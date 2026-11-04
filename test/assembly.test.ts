@@ -10,10 +10,13 @@ import { describe, expect, test } from 'bun:test'
 import { Context } from '@deepseek-ai/cordis'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import { registerAgentPrompt } from '../src/host/prompt'
+import { createWorkflowRegistry } from '../src/host/workflows'
 import type { ModeStore } from '../src/host/mode'
 import { testConfig } from './helpers'
 
 const config = testConfig({ defaultOn: false })
+/** The shipped definitions; the directory does not exist, so only built-ins load. */
+const registry = createWorkflowRegistry({ dir: config.workflowDir })
 
 function store(on: Set<string>): ModeStore {
   return {
@@ -49,7 +52,7 @@ async function assemble(sessionId: string, origin?: 'subagent') {
 describe('prompt assembly', () => {
   test('adds the section for an enabled conversation only', async () => {
     const { ctx, agent } = await assemble('s-on')
-    registerAgentPrompt(ctx, config, store(new Set(['s-on'])))
+    registerAgentPrompt(ctx, config, store(new Set(['s-on'])), registry)
 
     const enabled = await ctx.systemPrompt.assemble({ agent, scope: agent })
     expect(enabled.sections.map((section) => section.name)).toContain('genui:openui')
@@ -62,7 +65,7 @@ describe('prompt assembly', () => {
 
   test('stays out of subagent assemblies', async () => {
     const { ctx, agent } = await assemble('s-on', 'subagent')
-    registerAgentPrompt(ctx, config, store(new Set(['s-on'])))
+    registerAgentPrompt(ctx, config, store(new Set(['s-on'])), registry)
     const assembled = await ctx.systemPrompt.assemble({ agent, scope: agent })
     expect(assembled.sections.map((section) => section.name)).not.toContain('genui:openui')
   })
@@ -72,7 +75,7 @@ describe('prompt assembly', () => {
     await ctx.plugin(SystemPrompt, {})
     // Mounted first, exactly as the profile orders its bundles.
     promptReplacer(ctx, 'You are a general assistant.')
-    registerAgentPrompt(ctx, config, store(new Set(['s-on'])))
+    registerAgentPrompt(ctx, config, store(new Set(['s-on'])), registry)
 
     const agent = { session: { id: 's-on', header: {} } } as any
     const assembled = await ctx.systemPrompt.assemble({ agent, scope: agent })
@@ -87,7 +90,7 @@ describe('prompt assembly', () => {
     let current: string[] = ['real']
     const workflows = { get: () => current }
     const { ctx, agent } = await assemble('s-on')
-    registerAgentPrompt(ctx, testConfig({ defaultOn: false, workflows }), store(new Set(['s-on'])))
+    registerAgentPrompt(ctx, testConfig({ defaultOn: false, workflows }), store(new Set(['s-on'])), registry)
 
     const before = await ctx.systemPrompt.assemble({ agent, scope: agent })
     const textBefore = before.sections.find((section) => section.name === 'genui:openui')?.text ?? ''
@@ -103,7 +106,7 @@ describe('prompt assembly', () => {
 
   test('adds the section once, however often the prompt is assembled', async () => {
     const { ctx, agent } = await assemble('s-on')
-    registerAgentPrompt(ctx, config, store(new Set(['s-on'])))
+    registerAgentPrompt(ctx, config, store(new Set(['s-on'])), registry)
     await ctx.systemPrompt.assemble({ agent, scope: agent })
     const second = await ctx.systemPrompt.assemble({ agent, scope: agent })
     expect(second.sections.filter((section) => section.name === 'genui:openui')).toHaveLength(1)

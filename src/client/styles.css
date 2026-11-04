@@ -638,3 +638,58 @@ body {
   color: var(--dsw-alias-state-error-primary, #d92d20);
   font: var(--dsw-font-xxs-12, 400 12px/18px system-ui, sans-serif);
 }
+
+.genui-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.genui-settings-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.genui-settings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.genui-setting-row {
+  border-top: 1px solid var(--dsw-alias-border-l1, rgba(0, 0, 0, 0.06));
+}
+
+.genui-setting-row.is-orphan .genui-setting-label {
+  color: var(--dsw-alias-state-warn-label, #9a6b00);
+}
+
+.genui-settings-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.genui-settings-meta,
+.genui-settings-dir {
+  color: var(--dsw-alias-label-tertiary, #6b6b74);
+  font: var(--dsw-font-xxxs-11, 400 11px/16px system-ui, sans-serif);
+  overflow-wrap: anywhere;
+}
+
+.genui-settings-badge {
+  margin-left: 8px;
+  padding: 0 6px;
+  border-radius: 999px;
+  border: 1px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.1));
+  color: var(--dsw-alias-label-tertiary, #6b6b74);
+  font: var(--dsw-font-xxxs-11, 400 11px/16px system-ui, sans-serif);
+  vertical-align: 1px;
+}

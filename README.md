@@ -79,28 +79,34 @@ Resolved by `src/host/config.ts`; every key is optional.
 | `pollMs` | `750` | ComfyUI history poll interval while a job runs |
 | `minPngBytes` | `30000` | a smaller PNG is a failed render, not a picture |
 | `filePrefix` | `genui` | stem of render file names: `<filePrefix>_<lane>_<seed>.png` |
-| `workflows` | `[real]` | image workflows this deployment exposes; `anime` is opt-in, and the value is volatile so Settings can change it live |
+| `workflowDir` | `$DSH_HOME/genui/workflows` | where user workflow definitions are read from |
+| `workflows` | `[real]` | enabled workflow ids; volatile, so Settings changes it live |
 | `defaultOn` | `true` | a conversation answers as an OpenUI program unless `/openui off` says otherwise |
 
 One ComfyUI job per batch: `batch_size = count`, one history entry, N images, so all frames of
 a batch appear together and a failed frame fails the request.
 
-## Workflows: what is on
+## Workflows
 
-A **workflow** is a lane plus everything it drags in: graphs, defaults, presets and prompt
-text. Only `real` is on by default — one caption model, two graphs (fast and high), nothing
-else to install, no extra prompt tokens.
+A **workflow** is a lane plus everything it drags in: one or two graphs (fast/high), the
+settings they are tuned for, optional preset graphs, and an optional prompt section. The
+bundle ships two — `real` and `anime` — and only `real` is enabled by default: one caption
+model, two graphs, nothing else to install, no extra prompt tokens.
 
-`anime` is opt-in. Turning it on adds the anime lane, its fast/high graphs and its
-full-checkpoint presets; turning it off means none of that is loaded, advertised to the model
-or queued. A request that names a disabled lane is refused with a message saying what is
-enabled, rather than waiting on checkpoints that were never there.
+**Adding one is data, not code.** Drop a definition and its graph into the workflow directory
+(`$DSH_HOME/genui/workflows`, otherwise `~/.local/share/dsh-genui/workflows`), and it appears
+in the list — no rebuild, no restart, any number of them. The format and a worked example are
+in [docs/add-workflow.md](docs/add-workflow.md); a definition that ships inside the bundle is
+described in [AGENTS.md](AGENTS.md).
 
-**In the browser:** Settings → General → **Anime workflow**. The switch writes this bundle's
-config through the harness settings document (the profile's Cordis patch), and because the
-field is volatile the change lands on the next answer — the prompt section appears or
-disappears and `/genui/health` reports the new set, with no restart. Clearing the override
-returns the deployment to its composed default.
+**In the browser:** Settings → General → *Image workflows* lists every workflow the harness
+found. Each row has a switch and, when the definition came from a file, a delete button.
+Built-ins can be disabled but not deleted — deleting the file would just unmask the packaged
+graph on the next start. The enabled set is written through the harness settings document (the
+profile's Cordis patch), and because the field is volatile the change lands on the next answer:
+the prompt section appears or disappears and `/genui/health` reports the new set. A workflow
+that is enabled but whose files have gone missing is shown as an orphan, so you can remove it
+without hunting for the config.
 
 **In a profile:** the same thing as a file, when you want it pinned rather than toggled:
 
@@ -109,13 +115,13 @@ returns the deployment to its composed default.
 workflows: [real, anime]
 ```
 
-The row only exists where the client composes the settings service (the stock web profile
-does). Without it the bundle still renders answers and there is simply no switch.
+The list only exists where the client composes the settings service (the stock web profile
+does). Without it the bundle still renders answers and there is simply no list.
 
-What `anime` brings: `assets/anime.json`, `assets/anime-hq.json` and the preset graphs,
-the `anime` lane in the tool surface, booru-tag prompt conventions, and
-`assets/prompt-anime.md` — a section the host appends to the system prompt only when the
-workflow is on. A default install never pays for it, in tokens or in prompt drift.
+What `anime` brings: `assets/anime.json`, `assets/anime-hq.json` and the preset graphs, the
+`anime` lane in the tool surface, booru-tag prompt conventions, and `assets/prompt-anime.md` —
+a section the host appends to the system prompt only when the workflow is on. A default
+install never pays for it, in tokens or in prompt drift.
 
 `lane` picks the workflow, `quality` picks how much compute to spend on it, and two more
 knobs sit on top:
@@ -139,6 +145,8 @@ one preset never answers another.
 | `/genui/edit` | POST | `{ req: { prompt, source?, steps?, seed?, lora?, loraStrength? } }` |
 | `/genui/images/<file>` | GET | `image/png`, immutable cache; the file name is validated before it touches disk |
 | `/genui/health` | GET | `{ comfy: boolean, workflows: string[] }` |
+| `/genui/workflows` | GET | every known workflow with its enabled flag, and the directory they are read from |
+| `/genui/workflows` | POST | `{ action: "remove", id }` — deletes a user definition; built-ins are refused |
 | `/genui/mode` | GET | `{ default, sessions, off }`, or `{ session, openui }` with `?session=` |
 | `/genui/mode` | POST | `{ session, enabled }` → `{ session, openui }` |
 
@@ -222,11 +230,11 @@ Reopening a conversation therefore never re-runs old prompts.
 
 ## Models and graphs
 
-Lane and preset ids are stable; which checkpoint a lane loads is a property of the graph, so a
-deployment with different weights keeps the ids and swaps the templates. The registry lives in
-`src/host/models.ts`, the ids in `src/shared/models.ts` (shared with the client tool schema, so
-the two cannot drift), and the contract for editing or replacing a graph — including where the
-opt-in workflow's prompt text lives — is in [docs/graphs.md](docs/graphs.md).
+A workflow is a definition, not a class: `src/host/workflows.ts` holds the shipped ones and
+loads the rest from the workflow directory, `graphs.ts` knows only how to mutate a graph, and
+the prompt is assembled from the sections of the workflows that are enabled. The graph contract
+is in [docs/graphs.md](docs/graphs.md); adding a workflow is
+[docs/add-workflow.md](docs/add-workflow.md).
 
 ## Development
 
@@ -255,14 +263,15 @@ Layout:
 
 ```
 src/host/     Cordis plugin: config, prompt section, mode store, /openui command,
-              ComfyUI client, graph mutation, model registry, render store, routes
+              ComfyUI client, workflow registry, graph mutation, render store, routes
 src/client/   browser plugin: assistant-row renderer, OpenUI renderer, component library,
               cache-first query provider, the Settings → General workflow row, image styles
 src/shared/   the lane/quality/preset roster both halves import
 assets/       committed ComfyUI graphs, the OpenUI prompt, its hand-written rules
 lib/          built bundles, committed
 test/         unit tests, fixtures, fake ComfyUI
-docs/         the graph contract, the client-contract findings
+docs/         the graph contract, adding a workflow, the client-contract findings
+AGENTS.md     the working contract for agents: invariants, recipes, definition of done
 ```
 
 ## Limitations

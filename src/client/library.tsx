@@ -433,10 +433,11 @@ export const genuiLibrary = openuiLibrary.extend!({
  * a `generate_image(...)` function call that never reaches the host.
  *
  * This is the **default** tool surface: the workflows a fresh install exposes. An opt-in
- * workflow is not described here - the anime lane, its presets and its prompt conventions
- * live in `assets/prompt-anime.md`, which the host appends when `workflows` names it. The
- * enum ids come from `src/shared/models.ts`, the same roster the host validates against,
- * so the two cannot drift. See docs/graphs.md.
+ * workflow is not described here - a workflow's lane, presets and prompt conventions live in
+ * its own prompt section (`assets/prompt-anime.md` is the shipped example), which the host
+ * appends only while that workflow is enabled. The enum ids come from `src/shared/models.ts`,
+ * the vocabulary both halves share; which workflows exist is the registry's business. See
+ * docs/add-workflow.md.
  */
 export const genuiPromptOptions = {
   tools: [

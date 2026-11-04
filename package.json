@@ -1,6 +1,6 @@
 {
   "name": "dsh-genui",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "DeepSeek Harness bundle: answers rendered as OpenUI Lang interface, with generate_image and edit_image backed by a local ComfyUI",
   "license": "MIT",
   "author": "luimu64",
@@ -36,6 +36,7 @@
     "lib/",
     "assets/",
     "docs/",
+    "AGENTS.md",
     "cordis.patch.yml",
     "README.md",
     "LICENSE"

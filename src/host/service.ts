@@ -4,25 +4,29 @@
  * One Comfy job per batch (`batch_size = count`, one history entry with N images). Sequential
  * jobs would show frames progressively, but each one costs a model load, so a batch accepts
  * "all four appear together".
+ *
+ * The service knows no workflows of its own: the registry says which lane ids exist and which
+ * graph each one runs, and the config says which of them this deployment enabled. Both are read
+ * per request, so the Settings page can enable, disable or drop a workflow without a restart.
  */
 import { randomInt } from 'node:crypto'
 import {
   buildEditGraph,
   buildGraph,
+  defaultsFor,
   effectiveCount,
   effectiveUpscale,
-  isLane,
-  isPreset,
-  isQuality,
-  renderDefaults,
   type GenRequest,
-  type Lane,
-  type Preset,
-  type Quality,
 } from './graphs'
 import { createComfyClient, type ComfyClient, type ImageRef } from './comfy'
-import { EDIT_MODEL, PRESET_LANE } from './models'
+import {
+  createWorkflowRegistry,
+  EDIT_MODEL,
+  type WorkflowRegistry,
+  type WorkflowSummary,
+} from './workflows'
 import { readRender, resolveSource, saveRender } from './images'
+import { isQualityId } from '../shared/models'
 import { workflowsOf, type Config as GenuiConfig } from './config'
 
 export type { Config as GenuiConfig } from './config'
@@ -57,7 +61,7 @@ export interface GenImageOut {
   prompt: string
   lane: string
   quality: string
-  /** Which full checkpoint rendered this, when a preset was asked for. */
+  /** Which preset graph rendered this, when a preset was asked for. */
   preset?: string
   /** The hires factor, present only when a refine pass ran. */
   upscale?: number
@@ -83,6 +87,12 @@ export interface GenuiService {
   generate(req: GenerateInput): Promise<GenResult>
   edit(req: EditInput): Promise<GenResult>
   health(): Promise<{ comfy: boolean; workflows: string[] }>
+  /** Every known workflow with the enabled flag folded in. */
+  workflows(): WorkflowSummary[]
+  /** Delete a user-added workflow definition. A built-in is refused. */
+  removeWorkflow(id: string): boolean
+  /** The registry, for prompt sections and raw definitions. */
+  readonly registry: WorkflowRegistry
 }
 
 const FAST_TIMEOUT_MS = 240_000
@@ -115,20 +125,19 @@ function requirePrompt(value: unknown, tool: string): string {
 export function createGenuiService(
   config: GenuiConfig,
   comfy: ComfyClient = createComfyClient({ base: config.comfyBase, pollMs: config.pollMs }),
+  registry: WorkflowRegistry = createWorkflowRegistry({ dir: config.workflowDir }),
 ): GenuiService {
   const maxBatch = Math.max(1, Math.trunc(config.maxBatch || 8))
   const minPngBytes = Math.max(1, Math.trunc(config.minPngBytes || 30_000))
   const filePrefix = config.filePrefix?.trim() || 'genui'
-  // Opt-in workflows: a lane the deployment did not enable is refused here, with a message
-  // that says what is enabled, rather than queuing a graph whose checkpoints are not there.
-  // Read per request: the Settings row can turn a workflow on without a restart.
+  // Read per request: the Settings page writes this volatile field while the harness runs.
   const workflowsNow = () => workflowsOf(config)
 
   async function collect(images: ImageRef[], seed: number, steps: number, base: {
     prompt: string
-    lane: Lane
-    quality: Quality
-    preset?: Preset
+    lane: string
+    quality: string
+    preset?: string
     upscale?: number
   }): Promise<GenImageOut[]> {
     const out: GenImageOut[] = []
@@ -158,9 +167,9 @@ export function createGenuiService(
 
   function result(images: GenImageOut[], meta: {
     prompt: string
-    lane: Lane
-    quality: Quality
-    preset?: Preset
+    lane: string
+    quality: string
+    preset?: string
     upscale?: number
     seed: number
     steps: number
@@ -181,23 +190,39 @@ export function createGenuiService(
   }
 
   return {
+    registry,
+
     async generate(input) {
       const prompt = requirePrompt(input.prompt, 'generate_image')
-      const lane: Lane = isLane(input.lane) ? input.lane : 'real'
+      const lane = stringOr(input.lane)?.trim() || 'real'
       if (lane === 'edit') throw new Error('the edit lane needs edit_image (it takes a source image)')
-      const quality: Quality = isQuality(input.quality) ? input.quality : 'fast'
-      const workflows = workflowsNow()
-      if (!workflows.includes(lane)) {
+
+      // Existence first: "no such workflow" is a different mistake from "it is switched off",
+      // and the two messages send the reader to different places.
+      const workflow = registry.get(lane)
+      if (!workflow) {
+        const known = registry.list().map((candidate) => candidate.id).join(', ')
+        throw new Error(`unknown workflow "${lane}" (known workflows: ${known})`)
+      }
+      const enabled = workflowsNow()
+      if (!enabled.includes(lane)) {
         throw new Error(
-          `lane "${lane}" is not enabled in this deployment (enabled workflows: ${workflows.join(', ')})`,
+          `lane "${lane}" is not enabled in this deployment (enabled workflows: ${enabled.join(', ')})`,
         )
       }
-      const preset: Preset | undefined = isPreset(input.preset) ? input.preset : undefined
-      if (preset && lane !== PRESET_LANE) {
+
+      const asked = isQualityId(input.quality) ? input.quality : 'fast'
+      const preset = stringOr(input.preset)?.trim() || undefined
+      if (preset && !workflow.presets[preset]) {
+        const known = Object.keys(workflow.presets).join(', ')
         throw new Error(
-          `preset "${preset}" is a full ${PRESET_LANE} checkpoint: it needs lane "${PRESET_LANE}"`,
+          `workflow "${lane}" has no preset "${preset}"${known ? ` (has: ${known})` : ' (it defines none)'}`,
         )
       }
+      // A workflow that ships one graph runs the same settings for both qualities; reporting
+      // the quality it actually ran keeps the metadata and the cache key honest.
+      const quality = !preset && workflow.high === workflow.fast ? 'fast' : asked
+      const model = preset ? workflow.presets[preset] : workflow[quality]
 
       const req: GenRequest = {
         lane,
@@ -215,8 +240,8 @@ export function createGenuiService(
       }
 
       const seed = randomInt(0, 2 ** 32)
-      const graph = buildGraph(req, seed, maxBatch, filePrefix)
-      const defaults = renderDefaults(lane, quality, preset, filePrefix)
+      const graph = buildGraph(model, req, seed, maxBatch, filePrefix)
+      const defaults = defaultsFor(model, filePrefix)
       const upscale = effectiveUpscale(req, req.width ?? defaults.width, req.height ?? defaults.height)
       const promptId = await comfy.queue(graph)
       const timeout = quality === 'high'
@@ -254,15 +279,25 @@ export function createGenuiService(
     },
 
     async health() {
-      const workflows = workflowsNow()
+      const enabled = workflowsNow()
       try {
         const res = await fetch(`${config.comfyBase.replace(/\/+$/, '')}/system_stats`, {
           signal: AbortSignal.timeout(2000),
         })
-        return { comfy: res.ok, workflows }
+        return { comfy: res.ok, workflows: enabled }
       } catch {
-        return { comfy: false, workflows }
+        return { comfy: false, workflows: enabled }
       }
+    },
+
+    workflows() {
+      return registry.summaries(workflowsNow())
+    },
+
+    removeWorkflow(id) {
+      // The definition only: dropping the id from the enabled list is the settings form's
+      // job, because that write belongs to whoever owns the config document.
+      return registry.remove(id)
     },
   }
 }
