@@ -81,7 +81,7 @@ Resolved by `src/host/config.ts`; every key is optional.
 | `filePrefix` | `genui` | stem of render file names: `<filePrefix>_<lane>_<seed>.png` |
 | `workflowDir` | `$DSH_HOME/genui/workflows` | where user workflow definitions are read from |
 | `workflows` | `[real]` | enabled workflow ids; volatile, so Settings changes it live |
-| `defaultOn` | `true` | a conversation answers as an OpenUI program unless `/openui off` says otherwise |
+| `defaultOn` | `true` | a conversation answers as an OpenUI program unless `/openui off` says otherwise; volatile, so Settings can flip it live |
 
 One ComfyUI job per batch: `batch_size = count`, one history entry, N images, so all frames of
 a batch appear together and a failed frame fails the request.
@@ -181,6 +181,12 @@ the difference from the default is stored:
 That is deliberate. Setting a conversation back to the default drops its entry instead of
 writing a redundant one, so a later `defaultOn: false` moves every conversation nobody has
 expressed an opinion about.
+
+**The default itself is a switch.** Settings → General → *Answer as interface by default*
+writes the volatile `defaultOn` field, and the mode store reads it per answer: turning it off
+makes interface answers opt-in, so a new conversation is plain markdown until `/openui on`,
+and turning it back on flips every conversation that never chose. Existing per-conversation
+overrides keep their meaning across the change.
 
 The client paints either shape: a program goes to the OpenUI renderer, prose goes to the
 harness's own markdown renderer. Turning the mode off cannot leave a transcript blank or

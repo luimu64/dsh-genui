@@ -175,3 +175,44 @@ describe('/openui', () => {
     expect(store.isOn('s1')).toBe(false)
   })
 })
+
+describe('a live instance default', () => {
+  test('an untouched conversation follows the default when it changes', async () => {
+    const file = await tempFile()
+    let current = true
+    const store = createModeStore(file, { defaultOn: () => current })
+    expect(store.isOn('s1')).toBe(true)
+
+    current = false
+    expect(store.isOn('s1')).toBe(false)
+    expect(store.isOn('s2')).toBe(false)
+    expect(store.defaultOn).toBe(false)
+  })
+
+  test('only the deviations a conversation meant are stored', async () => {
+    const file = await tempFile()
+    let current = true
+    const store = createModeStore(file, { defaultOn: () => current })
+    store.set('s1', false)
+    store.set('s2', true)
+
+    current = false
+    expect(store.isOn('s1')).toBe(false)
+    // s2 said "on" while on was the default: that left no trace, so it now follows the new
+    // default rather than pinning a choice the user never made explicit against it.
+    expect(store.isOn('s2')).toBe(false)
+    expect(createModeStore(file, { defaultOn: () => current }).isOn('s1')).toBe(false)
+  })
+
+  test('setting a conversation to the current default drops its entry', async () => {
+    const file = await tempFile()
+    let current = true
+    const store = createModeStore(file, { defaultOn: () => current })
+    store.set('s1', false)
+    expect(JSON.parse(await readFile(file, 'utf8')).off).toEqual(['s1'])
+
+    store.set('s1', true)
+    expect(JSON.parse(await readFile(file, 'utf8')).off).toEqual([])
+    expect(store.offSessions()).toEqual([])
+  })
+})

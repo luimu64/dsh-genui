@@ -15,7 +15,7 @@ export const inject = ['webServer', 'systemPrompt']
 export { Config }
 
 export function apply(ctx: Context, config: GenuiConfig): void {
-  const mode = createModeStore(undefined, { defaultOn: config.defaultOn })
+  const mode = createModeStore(undefined, { defaultOn: () => config.defaultOn.get() })
   // One registry for the service and the prompt: both must see the same workflows, including
   // a definition dropped in while the harness runs.
   const registry = createWorkflowRegistry({ dir: config.workflowDir, log: ctx.logger('dsh-genui') })

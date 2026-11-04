@@ -33,7 +33,7 @@ describe('Config schema', () => {
     expect(resolved.maxBatch).toBe(8)
     expect(resolved.pollMs).toBe(750)
     expect(resolved.minPngBytes).toBe(30_000)
-    expect(resolved.defaultOn).toBe(true)
+    expect((resolved.defaultOn as unknown as { get(): boolean }).get()).toBe(true)
     expect(resolved.filePrefix).toBe('genui')
     // Volatile: the schema hands back a live reference, not a plain array.
     expect((resolved.workflows as unknown as { get(): string[] }).get()).toEqual(['real'])
@@ -49,5 +49,10 @@ describe('Config schema', () => {
 
   test('takes an explicit file prefix', () => {
     expect(resolve({ filePrefix: 'studio' }).filePrefix).toBe('studio')
+  })
+
+  test('the answer format default can be switched off', () => {
+    const defaultOn = resolve({ defaultOn: false }).defaultOn as unknown as { get(): boolean }
+    expect(defaultOn.get()).toBe(false)
   })
 })

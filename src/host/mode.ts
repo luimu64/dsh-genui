@@ -25,7 +25,7 @@ export interface ModeStore {
   sessions(): string[]
   /** Session ids explicitly off, i.e. opted out of a default-on instance. */
   offSessions(): string[]
-  /** The instance default this store was created with. */
+  /** The instance default right now: a deployment can flip it while the harness runs. */
   readonly defaultOn: boolean
   /** Where the set lives. */
   readonly file: string
@@ -60,11 +60,17 @@ function readState(file: string): { on: string[]; off: string[] } {
   }
 }
 
+/**
+ * `defaultOn` may be a value or a reader. The host passes a reader because the field is a
+ * volatile config field: the Settings page writes it, and every conversation that has no
+ * stored opinion must follow the new value on its next answer.
+ */
 export function createModeStore(
   file: string = modeFile(),
-  options: { defaultOn?: boolean } = {},
+  options: { defaultOn?: boolean | (() => boolean) } = {},
 ): ModeStore {
-  const defaultOn = options.defaultOn ?? true
+  const fixed = options.defaultOn
+  const readDefault: () => boolean = typeof fixed === 'function' ? fixed : () => fixed ?? true
   const state = readState(file)
   let on = new Set(state.on)
   let off = new Set(state.off)
@@ -73,7 +79,7 @@ export function createModeStore(
     try {
       mkdirSync(dirname(file), { recursive: true })
       const temp = `${file}.${process.pid}.tmp`
-      const body = { default: defaultOn, sessions: [...on], off: [...off] }
+      const body = { default: readDefault(), sessions: [...on], off: [...off] }
       writeFileSync(temp, `${JSON.stringify(body, null, 2)}\n`)
       renameSync(temp, file)
     } catch {
@@ -83,17 +89,19 @@ export function createModeStore(
 
   return {
     file,
-    defaultOn,
-    isOn: (sessionId) => (off.has(sessionId) ? false : on.has(sessionId) || defaultOn),
+    get defaultOn() {
+      return readDefault()
+    },
+    isOn: (sessionId) => (off.has(sessionId) ? false : on.has(sessionId) || readDefault()),
     set: (sessionId, next) => {
-      const current = off.has(sessionId) ? false : on.has(sessionId) || defaultOn
+      const current = off.has(sessionId) ? false : on.has(sessionId) || readDefault()
       if (current === next) return
       on = new Set(on)
       off = new Set(off)
       // Setting a conversation back to the instance default leaves no trace: the file says
       // only where a conversation deviates, so a later `defaultOn` change is not overridden
       // by an override the user never meant to pin.
-      if (next === defaultOn) {
+      if (next === readDefault()) {
         on.delete(sessionId)
         off.delete(sessionId)
       } else if (next) {

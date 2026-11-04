@@ -15,8 +15,13 @@ export interface Config {
   pollMs: number
   /** A PNG under this size is a failed render, not a picture. */
   minPngBytes: number
-  /** Whether a conversation answers as an OpenUI program until `/openui off` says otherwise. */
-  defaultOn: boolean
+  /**
+   * Whether a conversation answers as an OpenUI program until `/openui off` says otherwise.
+   *
+   * Volatile: Settings → General writes it, and the mode store reads it per answer, so a
+   * deployment can switch between "interface everywhere" and "opt in per conversation" live.
+   */
+  defaultOn: Volatile<boolean>
   /** Stem of render file names: `<filePrefix>_<lane>_<seed>.png`. */
   filePrefix: string
   /**
@@ -63,7 +68,7 @@ export const Config = Schema.object({
   maxBatch: Schema.number().default(8),
   pollMs: Schema.number().default(750),
   minPngBytes: Schema.number().default(30_000),
-  defaultOn: Schema.boolean().default(true),
+  defaultOn: Schema.boolean().default(true).volatile(),
   filePrefix: Schema.string().default('genui'),
   workflowDir: Schema.string().default(defaultWorkflowDir()),
   workflows: Schema.array(Schema.string()).default([...DEFAULT_WORKFLOWS]).volatile(),

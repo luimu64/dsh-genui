@@ -693,3 +693,10 @@ body {
   font: var(--dsw-font-xxxs-11, 400 11px/16px system-ui, sans-serif);
   vertical-align: 1px;
 }
+
+/* The answer-format switch sits above the workflow list, with its own rule. */
+.genui-settings-default {
+  border-top: 0;
+  border-bottom: 1px solid var(--dsw-alias-border-l1, rgba(0, 0, 0, 0.06));
+  padding-bottom: 12px;
+}

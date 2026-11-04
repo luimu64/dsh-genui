@@ -43,9 +43,14 @@ interface ListResponse {
 
 interface WorkflowValues {
   workflows?: unknown
+  defaultOn?: unknown
 }
 
 const COPY = {
+  defaultsHeading: 'Answer format',
+  defaultsLabel: 'Answer as interface by default',
+  defaultsHint:
+    'Every conversation answers as an OpenUI program unless it says /openui off. Turn this off to make interface answers opt-in: conversations stay markdown until /openui on.',
   heading: 'Image workflows',
   hint: 'Workflows this harness can render with. Off means the model is not offered it, and a request naming it is refused.',
   empty: 'No workflows are defined.',
@@ -116,6 +121,24 @@ export function makeWorkflowRow(ctx: Context) {
     const enabled = lanesOf(snapshot.value)
     const writable = snapshot.status === 'ready' && snapshot.writable
     const on = new Set(enabled)
+    // Absent or unreadable means the schema default, which is on.
+    const defaultOn = typeof snapshot.value?.defaultOn === 'boolean' ? snapshot.value.defaultOn : true
+
+    const setDefaultOn = useCallback(
+      async (next: boolean) => {
+        setBusy('defaultOn')
+        setError('')
+        try {
+          const accepted = await form.set('defaultOn', next)
+          if (!accepted) setError(COPY.refused)
+        } catch (err) {
+          setError(err instanceof Error ? err.message : String(err))
+        } finally {
+          setBusy('')
+        }
+      },
+      [form],
+    )
 
     const setEnabled = useCallback(
       async (id: string, next: boolean) => {
@@ -161,6 +184,20 @@ export function makeWorkflowRow(ctx: Context) {
 
     return (
       <div className="genui-settings">
+        <div className="genui-setting-row genui-settings-default">
+          <div className="genui-setting-copy">
+            <span className="genui-setting-label">{COPY.defaultsLabel}</span>
+            <span className="genui-setting-hint">{COPY.defaultsHint}</span>
+          </div>
+          <Switch
+            checked={defaultOn}
+            onChange={(next) => void setDefaultOn(next)}
+            label={COPY.defaultsLabel}
+            disabled={!writable || busy === 'defaultOn'}
+            title={writable ? COPY.defaultsHint : COPY.locked}
+          />
+        </div>
+
         <div className="genui-settings-head">
           <div className="genui-setting-copy">
             <span className="genui-setting-label">{COPY.heading}</span>

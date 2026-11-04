@@ -9,12 +9,13 @@
 import { createVolatile, type Volatile } from '@deepseek-ai/cosmokit'
 import type { Config } from '../src/host/config'
 
-export type TestConfigOverrides = Partial<Omit<Config, 'workflows'>> & {
+export type TestConfigOverrides = Partial<Omit<Config, 'workflows' | 'defaultOn'>> & {
   workflows?: string[] | Volatile<string[]>
+  defaultOn?: boolean | Volatile<boolean>
 }
 
 export function testConfig(overrides: TestConfigOverrides = {}): Config {
-  const { workflows, ...rest } = overrides
+  const { workflows, defaultOn, ...rest } = overrides
   return {
     comfyBase: 'http://127.0.0.1:8188',
     imagesDir: '/nonexistent/genui-images',
@@ -22,7 +23,7 @@ export function testConfig(overrides: TestConfigOverrides = {}): Config {
     maxBatch: 8,
     pollMs: 750,
     minPngBytes: 30_000,
-    defaultOn: false,
+    defaultOn: typeof defaultOn === 'boolean' ? createVolatile(defaultOn) : defaultOn ?? createVolatile(false),
     filePrefix: 'genui',
     // Tests exercise the full surface; the *default* install is ['real'] and is covered in
     // config.test.ts and the opt-in cases in service.test.ts.
