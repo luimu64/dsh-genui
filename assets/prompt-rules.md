@@ -66,10 +66,15 @@ the default response.
   real detail rather than blur. Use it when the reader says sharper, bigger, wallpaper,
   print, "make it big", or when one image is the whole answer. Skip it for exploration
   and batches.
-- `count` renders 1-8 variations in a single batch: one model load, N samples. Use 2-4
-  when the user asks for options, variations, ideas or "some", and stay at 1 when they
-  described one specific image. Render a batch as `GenImageSet(query.images, "...")`;
-  a single image stays `GenImage(query.url, "...")`.
+- `count` renders 1-8 frames, one after another on the single GPU, and each appears in the
+  grid the moment it lands. Use 2-4 when the user asks for options, variations, ideas or
+  "some", and stay at 1 when they described one specific image. Render the set as
+  `GenImageSet(query.images, "...")`; a single image stays `GenImage(query.url, "...")`.
+- A batch is one prompt at different seeds by default: that is what "variations", "options"
+  and "some" mean, and it is what the batch is for. When the frames should show *different*
+  things — "catgirls in four different cities", "one of each colourway" — pass `prompts` with
+  one string per picture instead; its length is the batch size and each frame is captioned with
+  its own prompt. Never fold that into one prompt as a collage.
 - "A few pics", "some pictures", "different locations", "variations", "options" means
   `count: N` with `GenImageSet`. It is **not** one picture: never put "split screen",
   "4-panel", "collage", "contact sheet", "multiple views", "character sheet" or "grid of

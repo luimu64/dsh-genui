@@ -263,7 +263,7 @@ const GenImage = defineComponent({
   },
 });
 
-type SlotView = { url: string; error?: string; missing?: boolean };
+type SlotView = { url: string; error?: string; missing?: boolean; prompt?: string };
 
 /** The batch a set of urls belongs to, when it was queued frame by frame. */
 function batchOf(urls: unknown): string | null {
@@ -297,6 +297,7 @@ function useBatchSlots(urls: unknown): SlotView[] {
       url: slot.url ?? "",
       error: slot.error,
       missing: slot.status === "missing",
+      prompt: slot.prompt,
     }));
   }
   return imageUrls(urls).map((url) => ({ url }));
@@ -376,8 +377,10 @@ const GenImageSet = defineComponent({
                 // work while the rest of the set is still rendering.
                 <GenFigure
                   src={slot.url}
-                  caption={`${props.prompt} (${i + 1})`}
-                  prompt={`${props.prompt} (${i + 1})`}
+                  // Each frame names the prompt it was rendered with: a batch may list a
+                  // different one per picture.
+                  caption={slot.prompt ?? `${props.prompt} (${i + 1})`}
+                  prompt={slot.prompt ?? `${props.prompt} (${i + 1})`}
                   showCaption={false}
                   tile
                 />
@@ -541,7 +544,12 @@ export const genuiPromptOptions = {
           count: {
             type: "number",
             description:
-              "How many images to render, 1-8. Defaults to 1. Frames are queued one at a time and appear as each finishes, so the reader sees the first picture after roughly one render, not after the whole set.",
+              "How many images to render, 1-8. Defaults to 1. Frames are queued one at a time and appear as each finishes, so the reader sees the first picture after roughly one render, not after the whole set. Ignored when prompts lists more than one entry.",
+          },
+          prompts: {
+            type: "array",
+            description:
+              'One prompt per picture, when the frames should differ: "four catgirls, one per city" means prompts: ["catgirl in Tokyo at night", "catgirl in Lagos at noon", ...]. The host varies the seed on its own, so leave this out for the default batch of one prompt rendered at different seeds. Length sets the batch size (1-8); each frame is captioned with its own prompt.',
           },
           steps: {
             type: "number",

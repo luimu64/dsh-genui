@@ -44,6 +44,8 @@ export type Slot = {
    * not on this machine any more. Nothing fills it except a user asking for it.
    */
   status: 'pending' | 'done' | 'error' | 'missing'
+  /** The prompt this frame was rendered with; the shared one unless the batch lists several. */
+  prompt?: string
   url?: string
   file?: string
   seed?: number
@@ -72,17 +74,54 @@ function emit(batch: Batch) {
 }
 
 /**
+ * The prompts of a batch, one per frame: `prompts` when the caller wrote one per picture,
+ * otherwise the single `prompt` repeated. The host varies the seed on its own, so repeating
+ * the prompt is the "same scene, different samples" default.
+ */
+export function promptsOf(req: BatchRequest): string[] {
+  const shared = typeof req.prompt === 'string' ? req.prompt.trim() : ''
+  const listed = Array.isArray(req.prompts)
+    ? (req.prompts as unknown[])
+        .filter((entry): entry is string => typeof entry === 'string')
+        .map((entry) => entry.trim())
+        .filter((entry) => entry.length > 0)
+    : []
+  if (listed.length > 0) return listed
+  return shared ? [shared] : []
+}
+
+/** One frame's request: its own prompt when the batch listed several, and never a count. */
+export function slotRequest(req: BatchRequest, index: number): BatchRequest {
+  const prompts = promptsOf(req)
+  const prompt = prompts[index] ?? prompts[0] ?? ''
+  const { prompts: _prompts, ...rest } = req
+  return { ...rest, prompt, count: 1 }
+}
+
+/**
  * The cache key of one image of a batch: the single-image request plus the slot index.
  * The suffix is outside the key's positional array on purpose — `imageKey`'s shape is what
  * every already-stored render is hashed with, and changing it would orphan all of them.
  */
 export function slotKey(req: BatchRequest, index: number): string {
-  return `${imageKey({ ...req, count: 1 })}#${index}`
+  return `${imageKey(slotRequest(req, index))}#${index}`
+}
+
+/**
+ * The request the aggregate cache entry is keyed by. A batch that listed its own prompts is
+ * keyed by the whole list, so editing one prompt is a different batch rather than a silent
+ * replay of the old frames.
+ */
+function batchKeyRequest(req: BatchRequest): BatchRequest {
+  const prompts = promptsOf(req)
+  return Array.isArray(req.prompts) && prompts.length > 1
+    ? { ...req, prompt: prompts.join('\u0000') }
+    : req
 }
 
 /** Everything that makes one batch the same batch: the request, count included. */
 export function batchKey(req: BatchRequest): string {
-  return imageKey(req)
+  return imageKey(batchKeyRequest(req))
 }
 
 export function subscribeBatch(key: string, listener: () => void): () => void {
@@ -103,11 +142,16 @@ export function batchSlots(key: string): Slot[] | null {
   return batches.get(key)?.slots ?? null
 }
 
-function newBatch(key: string, total: number): Batch {
+function newBatch(key: string, total: number, req: BatchRequest): Batch {
+  const prompts = promptsOf(req)
   return {
     key,
     total,
-    slots: Array.from({ length: total }, (_, index) => ({ index, status: 'pending' as const })),
+    slots: Array.from({ length: total }, (_, index) => ({
+      index,
+      status: 'pending' as const,
+      prompt: prompts[index] ?? prompts[0],
+    })),
     listeners: new Set(),
     version: 0,
     started: false,
@@ -157,7 +201,7 @@ export function startBatch(
         }
       }
     }
-    batch = newBatch(key, count)
+    batch = newBatch(key, count, req)
     batches.set(key, batch)
     hydrateBatch(req, batch)
   }
@@ -202,9 +246,10 @@ async function run(batch: Batch, req: BatchRequest) {
       if (slot.status !== 'pending') continue
       try {
         // One job at a time: the whole point is a single GPU with one queue. The per-slot
-        // key means a rerender or a reload never asks for a frame twice.
+        // key means a rerender or a reload never asks for a frame twice, and the per-slot
+        // request carries this frame's own prompt when the batch listed one per picture.
         const rendered = await cachedRender(slotKey(req, slot.index), () =>
-          withRetry(() => postFrame(req)),
+          withRetry(() => postFrame(slotRequest(req, slot.index))),
         )
         slot.status = 'done'
         slot.url = rendered.url
@@ -222,7 +267,7 @@ async function run(batch: Batch, req: BatchRequest) {
     if (batch.slots.every((slot) => slot.status === 'done')) {
       rememberImage(batch.key, {
         url: batch.slots[0]?.url ?? '',
-        prompt: String(req.prompt ?? ''),
+        prompt: batch.slots[0]?.prompt ?? String(req.prompt ?? ''),
         lane: String(req.lane ?? 'real'),
         quality: typeof req.quality === 'string' ? req.quality : undefined,
         seed: batch.slots[0]?.seed ?? 0,
@@ -242,12 +287,12 @@ async function run(batch: Batch, req: BatchRequest) {
  * entries, in either quality lane.
  */
 function hydrateBatch(req: BatchRequest, batch: Batch) {
-  const aggregate = recordedImage(req)?.images ?? []
+  const aggregate = recordedImage(batchKeyRequest(req))?.images ?? []
   for (const slot of batch.slots) {
     if (slot.status !== 'pending') continue
     const stored =
       peek(slotKey(req, slot.index)) ??
-      peek(slotKey({ ...req, count: 1, quality: otherLane(req.quality) }, slot.index))
+      peek(slotKey({ ...req, quality: otherLane(req.quality) }, slot.index))
     const source = stored ?? aggregate[slot.index]
     if (!source || !source.url) continue
     slot.status = 'done'

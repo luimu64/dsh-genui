@@ -7,7 +7,14 @@
  * its own slot.
  */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { batchSlots, batchVersion, slotKey, startBatch, subscribeBatch } from '../src/client/batches'
+import {
+  batchKey,
+  batchSlots,
+  batchVersion,
+  slotKey,
+  startBatch,
+  subscribeBatch,
+} from '../src/client/batches'
 
 const realFetch = globalThis.fetch
 let calls: { body: any }[] = []
@@ -120,5 +127,38 @@ describe('startBatch', () => {
     await settle(again.key)
     expect(calls).toHaveLength(3)
     expect(batchSlots(again.key)?.every((slot) => slot.status === 'done')).toBe(true)
+  })
+})
+
+describe('per-frame prompts', () => {
+  test('one prompt is reused for every frame, so the seeds do the varying', async () => {
+    const request = req('same scene, four samples')
+    const batch = startBatch(request, 3)
+    const slots = await settle(batch.key)
+    expect(calls.map((call) => call.body.req.prompt)).toEqual([
+      'same scene, four samples',
+      'same scene, four samples',
+      'same scene, four samples',
+    ])
+    expect(slots.every((slot) => slot.prompt === 'same scene, four samples')).toBe(true)
+    // The host picks a fresh seed per job, so the frames differ without being told to.
+    expect(calls.every((call) => call.body.req.seed === undefined)).toBe(true)
+  })
+
+  test('a listed prompt is used by its own frame', async () => {
+    const prompts = ['catgirl in Tokyo', 'catgirl in Lagos', 'catgirl in Oslo']
+    const batch = startBatch({ lane: 'anime', quality: 'fast', prompt: prompts[0], prompts }, 3)
+    const slots = await settle(batch.key)
+    expect(calls.map((call) => call.body.req.prompt)).toEqual(prompts)
+    expect(slots.map((slot) => slot.prompt)).toEqual(prompts)
+    expect(slots.every((slot) => slot.status === 'done')).toBe(true)
+  })
+
+  test('editing one prompt is a different batch, not a replay of the old frames', () => {
+    const first = ['a red fox', 'a grey fox']
+    const second = ['a red fox', 'a black fox']
+    const keyA = batchKey({ lane: 'real', quality: 'fast', prompt: first[0], prompts: first })
+    const keyB = batchKey({ lane: 'real', quality: 'fast', prompt: second[0], prompts: second })
+    expect(keyA).not.toBe(keyB)
   })
 })

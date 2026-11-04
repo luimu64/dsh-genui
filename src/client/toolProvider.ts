@@ -11,7 +11,7 @@
  *    appearing all at once at the end.
  */
 import { cachedRender, hydratedOnce, imageKey, lookupRender, type Rendered } from './imageCache'
-import { startBatch, batchKey } from './batches'
+import { startBatch, batchKey, promptsOf } from './batches'
 import { withRetry } from './retry'
 
 function post(path: string, body: unknown): Promise<Rendered> {
@@ -53,17 +53,19 @@ function requiredPrompt(args: Record<string, unknown>, tool: string): void {
  * that is already rendered carries its url; the rest carry the batch key and their index, so
  * `GenImageSet` can subscribe to the queue and paint each picture the moment it lands.
  *
- * The query resolves immediately on purpose. Waiting for all N frames is exactly the
+ * `prompts` (one per picture) sets the size of the batch when it is given; `count` otherwise.
+ * Either way the query resolves immediately: waiting for all N frames is exactly the
  * all-at-once behaviour this replaces.
  */
 function batchResult(args: Record<string, unknown>, mayGenerate: boolean): Rendered {
-  const count = Math.max(1, Math.round(Number(args.count) || 1))
+  const listed = promptsOf(args)
+  const count = Math.max(1, Math.round(listed.length > 1 ? listed.length : Number(args.count) || 1))
   const key = batchKey(args)
   const batch = startBatch(args, count, { dispatch: mayGenerate })
   return {
     url: '',
     file: '',
-    prompt: String(args.prompt ?? ''),
+    prompt: String(args.prompt ?? listed[0] ?? ''),
     lane: String(args.lane ?? 'real'),
     quality: typeof args.quality === 'string' ? args.quality : undefined,
     preset: typeof args.preset === 'string' ? args.preset : undefined,
@@ -93,8 +95,12 @@ async function render(
   if (hit) return hit
   const allowed = mayGenerate()
   // A batch the cache does not know is queued frame by frame; the single-image path is
-  // unchanged, because one job is already progressive.
-  if (tool === 'generate_image' && Number(args.count) > 1) return batchResult(args, allowed)
+  // unchanged, because one job is already progressive. A prompt per picture is a batch too,
+  // even when the caller left the count out.
+  const listed = promptsOf(args)
+  if (tool === 'generate_image' && (listed.length > 1 || Number(args.count) > 1)) {
+    return batchResult(args, allowed)
+  }
   if (!allowed) return missing(args)
   return cachedRender(key, () => withRetry(() => post(path, { req: args })))
 }

@@ -115,6 +115,15 @@ describe('makeToolProvider', () => {
     expect(result.images?.every((image) => image.total === 3)).toBe(true)
   })
 
+  test('a prompt list sizes the batch and is passed through per frame', async () => {
+    reply = { status: 200, body: rendered('listed') }
+    const provider = makeToolProvider({ allowGeneration: true })
+    const prompts = ['a fox in snow', 'a fox on sand', 'a fox in rain']
+    const result = await provider.generate_image({ prompt: prompts[0], prompts, lane: 'real' })
+    expect(result.images).toHaveLength(3)
+    expect(result.images?.map((image) => image.index)).toEqual([0, 1, 2])
+  })
+
   test('a stored batch is a hole per frame, never a new queue', async () => {
     const provider = makeToolProvider({ allowGeneration: false })
     const result = await provider.generate_image({ prompt: 'stored batch', count: 2 })
