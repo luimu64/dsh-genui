@@ -98,3 +98,61 @@ describe('viewUrl', () => {
     )
   })
 })
+
+describe('queue contention', () => {
+  test('time spent queued behind another job does not count as render time', async () => {
+    const id = 'p-queued'
+    let polls = 0
+    let runningAt = 0
+    const server = Bun.serve({
+      port: 0,
+      fetch: (req) => {
+        const url = new URL(req.url)
+        if (url.pathname === '/queue') {
+          polls++
+          // Another workflow holds the GPU for the first three polls.
+          if (polls < 4) return Response.json({ queue_running: [[1, 'someone-else', {}, {}, []]] })
+          runningAt ||= Date.now()
+          return Response.json({ queue_running: [[2, id, {}, {}, []]] })
+        }
+        // Completes only after the job itself has been running for a while.
+        if (url.pathname === '/history/' + id && runningAt !== 0 && Date.now() - runningAt >= 60) {
+          return Response.json({
+            [id]: {
+              status: { status_str: 'success', completed: true },
+              outputs: { 9: { images: [{ filename: 'x.png', subfolder: '', type: 'output' }] } },
+            },
+          })
+        }
+        return Response.json({})
+      },
+    })
+    const comfy = createComfyClient({ base: `http://127.0.0.1:${server.port}`, pollMs: 20 })
+    // The render budget is shorter than the queue wait: queue time must not consume it.
+    const images = await comfy.wait(id, 200, 20)
+    expect(images).toEqual([{ filename: 'x.png', subfolder: '', type: 'output' }])
+    expect(polls).toBeGreaterThan(1)
+    server.stop(true)
+  })
+
+  test('a job that never starts is a busy-queue error, not a silent timeout', async () => {
+    const server = Bun.serve({
+      port: 0,
+      fetch: (req) => {
+        const url = new URL(req.url)
+        if (url.pathname === '/queue') return Response.json({ queue_running: [[1, 'someone-else', {}, {}, []]] })
+        return Response.json({})
+      },
+    })
+    const comfy = createComfyClient({ base: `http://127.0.0.1:${server.port}`, pollMs: 10 })
+    // The fake queue wait is 30 minutes, so this only proves the loop keeps polling rather
+    // than failing on the render budget.
+    const pending = comfy.wait('never-starts', 50, 10)
+    const winner = await Promise.race([
+      pending.then(() => 'resolved').catch(() => 'rejected'),
+      new Promise((resolve) => setTimeout(() => resolve('still-waiting'), 150)),
+    ])
+    expect(winner).toBe('still-waiting')
+    server.stop(true)
+  })
+})

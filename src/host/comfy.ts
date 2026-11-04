@@ -75,6 +75,9 @@ async function jsonBody(response: Response, what: string): Promise<any> {
   }
 }
 
+/** How long a render may sit in ComfyUI's queue before it is somebody else's problem. */
+const QUEUE_WAIT_MS = 30 * 60_000
+
 export function createComfyClient(options: ComfyClientOptions): ComfyClient {
   const base = options.base.replace(/\/+$/, '')
   const defaultPoll = options.pollMs ?? 750
@@ -82,6 +85,20 @@ export function createComfyClient(options: ComfyClientOptions): ComfyClient {
 
   const call = (path: string, init: RequestInit = {}, signal?: AbortSignal) =>
     fetch(`${base}${path}`, { ...init, signal: signal ?? options.signal })
+
+  /** Is this prompt the one holding the GPU? A ComfyUI without /queue is assumed to run it. */
+  const isRunning = async (promptId: string): Promise<boolean> => {
+    try {
+      const res = await call('/queue')
+      if (!res.ok) return true
+      const body = await res.json()
+      const running = Array.isArray(body?.queue_running) ? body.queue_running : []
+      if (running.length === 0) return true
+      return running.some((entry: unknown) => Array.isArray(entry) && entry[1] === promptId)
+    } catch {
+      return true
+    }
+  }
 
   return {
     async queue(graph, signal) {
@@ -111,7 +128,12 @@ export function createComfyClient(options: ComfyClientOptions): ComfyClient {
 
     async wait(promptId, timeoutMs, pollMs) {
       const interval = pollMs ?? defaultPoll
-      const deadline = Date.now() + timeoutMs
+      // The render clock starts when the job starts running, not when it is queued: another
+      // workflow on this box can hold the GPU for minutes, and charging that to the render
+      // made every request behind one fail as a timeout.
+      let started = false
+      let deadline = 0
+      const queuedSince = Date.now()
       for (;;) {
         const res = await call(`/history/${encodeURIComponent(promptId)}`).catch((err) => {
           throw new Error(`comfy history request failed: ${String(err)}`)
@@ -120,7 +142,17 @@ export function createComfyClient(options: ComfyClientOptions): ComfyClient {
         const parsed = parseHistoryEntry(body?.[promptId])
         if (parsed.state === 'done') return parsed.images
         if (parsed.state === 'failed') throw new Error(parsed.message)
-        if (Date.now() >= deadline) {
+
+        if (!started) {
+          if (await isRunning(promptId)) {
+            started = true
+            deadline = Date.now() + timeoutMs
+          } else if (Date.now() - queuedSince >= QUEUE_WAIT_MS) {
+            throw new Error(
+              `comfy queued this render for ${Math.round(QUEUE_WAIT_MS / 1000)}s without starting it - ComfyUI is busy with another job`,
+            )
+          }
+        } else if (Date.now() >= deadline) {
           throw new Error(`comfy timed out after ${Math.round(timeoutMs / 1000)}s`)
         }
         await new Promise((resolve) => setTimeout(resolve, interval))

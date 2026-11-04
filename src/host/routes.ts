@@ -93,10 +93,11 @@ function payload(body: unknown): Record<string, unknown> {
   return record
 }
 
-async function guard(
+async function guardWith(
   req: IncomingMessage,
   res: ServerResponse,
   run: () => Promise<void>,
+  log: { warn: (message: string) => void },
 ): Promise<void> {
   try {
     assertSameOrigin(req)
@@ -104,6 +105,9 @@ async function guard(
   } catch (err) {
     const status = err instanceof HttpError ? err.status : 500
     const message = err instanceof Error ? err.message : String(err)
+    // A 5xx here is the only record a browser-side failure leaves; keep it next to the rest
+    // of the boot log instead of only in the tab.
+    if (status >= 500) log.warn(`${req.method} ${req.url} -> ${status}: ${message}`)
     if (!res.headersSent) sendText(res, status, message)
     else res.end()
   }
@@ -115,6 +119,11 @@ export function registerRoutes(
   config: GenuiConfig,
   mode: ModeStore,
 ): (() => void)[] {
+  const log = ctx.logger('dsh-genui')
+
+  const guard = (req: IncomingMessage, res: ServerResponse, run: () => Promise<void>) =>
+    guardWith(req, res, run, log)
+
   const post = (path: string, run: (body: Record<string, unknown>) => Promise<unknown>) =>
     ctx.webServer.register({
       kind: 'exact',
