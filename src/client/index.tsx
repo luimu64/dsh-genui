@@ -34,14 +34,19 @@ export function apply(ctx: Context): void {
     ),
   )
 
-  // Settings → General gets one row when the shell composes the settings service: the
-  // workflow switch. It writes this bundle's own volatile `workflows` field, so a deployment
-  // without Settings keeps the renderer and simply has no switch.
-  ctx.inject(['configForms'], (scoped) => {
+  // Settings → General gets our rows when the shell composes the settings transport.
+  //
+  // `configForms` provides the form, and `remote` is what the form subscribes to for
+  // invalidation - the shipped feature rows (ui-theme's Appearance) inject both, so this does
+  // too, and the row is built from the *scoped* context so the subscription rides the fiber
+  // that actually has them. Declaring them here rather than in the plugin's own inject list
+  // keeps the bundle loadable in a shell without Settings: the renderer still mounts, there
+  // are simply no rows.
+  ctx.inject(['configForms', 'remote'], (scoped) => {
     scoped.slots.inject('settings.general.item', () =>
       scoped.slots.register(
         { name: 'settings.general.item', id: 'genui-workflows', order: 40 },
-        makeWorkflowRow(ctx),
+        makeWorkflowRow(scoped),
       ),
     )
   })

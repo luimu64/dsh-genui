@@ -149,7 +149,7 @@ describe('client bundle', () => {
     expect((document.head as any).text).toContain('--openui-text-neutral-primary: var(--dsw-alias-label-primary')
   })
 
-  test('adds the workflow switch only when the settings service is composed', () => {
+  test('adds the settings rows only when the settings transport is composed', () => {
     const { exports } = materialize()
 
     const withoutSettings: { options: any; component: unknown }[] = []
@@ -158,8 +158,15 @@ describe('client bundle', () => {
       'conversation.chat.node',
     ])
 
+    // Both halves of the transport, or no row: `configForms` alone cannot refresh the form.
+    const partial: { options: any; component: unknown }[] = []
+    exports.apply(fakeContext(partial, ['configForms']))
+    expect(partial.map((registration) => registration.options.name)).toEqual([
+      'conversation.chat.node',
+    ])
+
     const withSettings: { options: any; component: unknown }[] = []
-    exports.apply(fakeContext(withSettings, ['configForms']))
+    exports.apply(fakeContext(withSettings, ['configForms', 'remote']))
     expect(withSettings.map((registration) => registration.options.name)).toEqual([
       'conversation.chat.node',
       'settings.general.item',
