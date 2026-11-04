@@ -110,22 +110,31 @@ describe('client bundle', () => {
     expect(typeof exports.apply).toBe('function')
   })
 
-  test('shadows the assistant row instead of adding a second one', () => {
-    const { exports, document } = materialize()
-    const registrations: { options: any; component: unknown }[] = []
-    exports.apply({
+  /** The context surface the plugin touches: effects, slots, and optional services. */
+  function fakeContext(registrations: { options: any; component: unknown }[], services: string[] = []) {
+    const slots = {
+      inject: (_name: string, callback: () => void) => callback(),
+      register: (options: unknown, component: unknown) => {
+        registrations.push({ options, component })
+        return () => {}
+      },
+    }
+    return {
       effect: (fn: () => unknown) => {
         fn()
         return () => {}
       },
-      slots: {
-        inject: (_name: string, callback: () => void) => callback(),
-        register: (options: unknown, component: unknown) => {
-          registrations.push({ options, component })
-          return () => {}
-        },
+      slots,
+      inject: (deps: string[], callback: (scoped: unknown) => void) => {
+        if (deps.every((dep) => services.includes(dep))) callback({ slots })
       },
-    })
+    }
+  }
+
+  test('shadows the assistant row instead of adding a second one', () => {
+    const { exports, document } = materialize()
+    const registrations: { options: any; component: unknown }[] = []
+    exports.apply(fakeContext(registrations))
     expect(registrations).toHaveLength(1)
     expect(registrations[0].options).toMatchObject({
       name: 'conversation.chat.node',
@@ -138,5 +147,28 @@ describe('client bundle', () => {
     // light shell does not grow dark cards.
     expect(document.documentElement.dataset.openuiTheme).toBeUndefined()
     expect((document.head as any).text).toContain('--openui-text-neutral-primary: var(--dsw-alias-label-primary')
+  })
+
+  test('adds the workflow switch only when the settings service is composed', () => {
+    const { exports } = materialize()
+
+    const withoutSettings: { options: any; component: unknown }[] = []
+    exports.apply(fakeContext(withoutSettings))
+    expect(withoutSettings.map((registration) => registration.options.name)).toEqual([
+      'conversation.chat.node',
+    ])
+
+    const withSettings: { options: any; component: unknown }[] = []
+    exports.apply(fakeContext(withSettings, ['configForms']))
+    expect(withSettings.map((registration) => registration.options.name)).toEqual([
+      'conversation.chat.node',
+      'settings.general.item',
+    ])
+    expect(withSettings[1].options).toMatchObject({
+      name: 'settings.general.item',
+      id: 'genui-workflows',
+      order: 40,
+    })
+    expect(typeof withSettings[1].component).toBe('function')
   })
 })

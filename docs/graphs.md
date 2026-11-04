@@ -14,6 +14,8 @@ data change rather than a patch.
   prefix, and the optional hires pair.
 - `src/host/config.ts` — `workflows`: which lanes this deployment exposes. `['real']` is
   the default; `anime` is opt-in, and a disabled lane is refused before a graph is queued.
+  The field is volatile: Settings → General writes it, and the request path reads the live
+  reference, so a toggle takes effect without a restart.
 
 A workflow is a lane plus its prompt text. `real` is the two photo graphs.
 `anime` is `anime.json`, `anime-hq.json`, the two preset graphs, the anime lane in the tool

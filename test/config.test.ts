@@ -35,12 +35,16 @@ describe('Config schema', () => {
     expect(resolved.minPngBytes).toBe(30_000)
     expect(resolved.defaultOn).toBe(true)
     expect(resolved.filePrefix).toBe('genui')
-    expect(resolved.workflows).toEqual(['real'])
+    // Volatile: the schema hands back a live reference, not a plain array.
+    expect((resolved.workflows as unknown as { get(): string[] }).get()).toEqual(['real'])
     expect(String(resolved.imagesDir)).toContain('dsh-genui')
   })
 
   test('anime is opt-in: it is not part of the default workflows', () => {
-    expect(resolve({ workflows: ['real', 'anime'] }).workflows).toEqual(['real', 'anime'])
+    const workflows = resolve({ workflows: ['real', 'anime'] }).workflows as unknown as {
+      get(): string[]
+    }
+    expect(workflows.get()).toEqual(['real', 'anime'])
   })
 
   test('takes an explicit file prefix', () => {

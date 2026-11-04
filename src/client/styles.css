@@ -604,3 +604,37 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ---------- settings row ---------- */
+/* The workflow switch lives in Settings → General, outside `.genui-root`, so these rules
+   are scoped by their own class and read the same tokens. */
+
+.genui-setting-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 0;
+}
+
+.genui-setting-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.genui-setting-label {
+  color: var(--dsw-alias-label-primary, #1b1b1f);
+  font: var(--dsw-font-s-strong-14, 600 14px/22px system-ui, sans-serif);
+}
+
+.genui-setting-hint {
+  color: var(--dsw-alias-label-secondary, #4b4b55);
+  font: var(--dsw-font-xxs-12, 400 12px/18px system-ui, sans-serif);
+}
+
+.genui-setting-error {
+  color: var(--dsw-alias-state-error-primary, #d92d20);
+  font: var(--dsw-font-xxs-12, 400 12px/18px system-ui, sans-serif);
+}

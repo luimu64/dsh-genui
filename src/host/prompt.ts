@@ -22,10 +22,10 @@ import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-system-prompt'
-import { DEFAULT_WORKFLOWS, parseWorkflows } from '../shared/models'
+import { DEFAULT_WORKFLOWS } from '../shared/models'
 import { listRenders } from './images'
 import type { ModeStore } from './mode'
-import type { Config } from './config'
+import { workflowsOf, type Config } from './config'
 
 const SECTION = 'genui:openui'
 const CONTEXT = 'genui:renders'
@@ -74,7 +74,20 @@ function agentOf(context: unknown): any {
 }
 
 export function registerAgentPrompt(ctx: Context, config: Config, mode: ModeStore): void {
-  const prompt = openuiPrompt(parseWorkflows(config.workflows))
+  // The workflows are a volatile field, so the section is rebuilt when the set changes -
+  // a Settings write lands on the next assembly, not the next restart - and memoised while
+  // it does not.
+  let cachedKey = ''
+  let cached = ''
+  const promptNow = (): string => {
+    const workflows = workflowsOf(config)
+    const key = workflows.join(',')
+    if (key !== cachedKey) {
+      cached = openuiPrompt(workflows)
+      cachedKey = key
+    }
+    return cached
+  }
 
   ctx.on('system-prompt/assemble', async (assembly, context, next) => {
     const built = await next()
@@ -88,7 +101,7 @@ export function registerAgentPrompt(ctx: Context, config: Config, mode: ModeStor
     const renders = renderList(config.imagesDir)
     return {
       ...built,
-      sections: [...built.sections, { name: SECTION, text: prompt }],
+      sections: [...built.sections, { name: SECTION, text: promptNow() }],
       contexts: renders ? [...built.contexts, { name: CONTEXT, text: renders }] : built.contexts,
     }
   }, { prepend: true } as any)

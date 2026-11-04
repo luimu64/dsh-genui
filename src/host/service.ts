@@ -22,9 +22,8 @@ import {
 } from './graphs'
 import { createComfyClient, type ComfyClient, type ImageRef } from './comfy'
 import { EDIT_MODEL, PRESET_LANE } from './models'
-import { parseWorkflows } from '../shared/models'
 import { readRender, resolveSource, saveRender } from './images'
-import type { Config as GenuiConfig } from './config'
+import { workflowsOf, type Config as GenuiConfig } from './config'
 
 export type { Config as GenuiConfig } from './config'
 
@@ -122,8 +121,8 @@ export function createGenuiService(
   const filePrefix = config.filePrefix?.trim() || 'genui'
   // Opt-in workflows: a lane the deployment did not enable is refused here, with a message
   // that says what is enabled, rather than queuing a graph whose checkpoints are not there.
-  const workflows = parseWorkflows(config.workflows)
-  const enabled = new Set(workflows)
+  // Read per request: the Settings row can turn a workflow on without a restart.
+  const workflowsNow = () => workflowsOf(config)
 
   async function collect(images: ImageRef[], seed: number, steps: number, base: {
     prompt: string
@@ -187,7 +186,8 @@ export function createGenuiService(
       const lane: Lane = isLane(input.lane) ? input.lane : 'real'
       if (lane === 'edit') throw new Error('the edit lane needs edit_image (it takes a source image)')
       const quality: Quality = isQuality(input.quality) ? input.quality : 'fast'
-      if (!enabled.has(lane)) {
+      const workflows = workflowsNow()
+      if (!workflows.includes(lane)) {
         throw new Error(
           `lane "${lane}" is not enabled in this deployment (enabled workflows: ${workflows.join(', ')})`,
         )
@@ -254,6 +254,7 @@ export function createGenuiService(
     },
 
     async health() {
+      const workflows = workflowsNow()
       try {
         const res = await fetch(`${config.comfyBase.replace(/\/+$/, '')}/system_stats`, {
           signal: AbortSignal.timeout(2000),

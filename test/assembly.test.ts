@@ -83,6 +83,24 @@ describe('prompt assembly', () => {
     expect(names[0]).toBe('persona:complete')
   })
 
+  test('a live workflow write changes the next assembly, not the next restart', async () => {
+    let current: string[] = ['real']
+    const workflows = { get: () => current }
+    const { ctx, agent } = await assemble('s-on')
+    registerAgentPrompt(ctx, testConfig({ defaultOn: false, workflows }), store(new Set(['s-on'])))
+
+    const before = await ctx.systemPrompt.assemble({ agent, scope: agent })
+    const textBefore = before.sections.find((section) => section.name === 'genui:openui')?.text ?? ''
+    expect(textBefore).not.toContain('Optional workflow: anime')
+
+    // What the Settings row does to the volatile field.
+    current = ['real', 'anime']
+    const after = await ctx.systemPrompt.assemble({ agent, scope: agent })
+    expect(after.sections.find((section) => section.name === 'genui:openui')?.text).toContain(
+      'Optional workflow: anime',
+    )
+  })
+
   test('adds the section once, however often the prompt is assembled', async () => {
     const { ctx, agent } = await assemble('s-on')
     registerAgentPrompt(ctx, config, store(new Set(['s-on'])))

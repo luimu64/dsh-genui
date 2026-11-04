@@ -174,3 +174,20 @@ describe('opt-in workflows', () => {
     expect(await realOnly.health()).toEqual({ comfy: false, workflows: ['real'] })
   })
 })
+
+describe('live workflow changes', () => {
+  test('a write to the volatile field lands on the next request', async () => {
+    let current: string[] = ['real']
+    const workflows = { get: () => current }
+    const service = createGenuiService(
+      testConfig({ comfyBase: fake.base, imagesDir: dir, pollMs: 10, minPngBytes: 4, workflows }),
+    )
+    await expect(service.generate({ lane: 'anime', prompt: 'x' })).rejects.toThrow('is not enabled')
+
+    // What the Settings row does: the reference is updated in place, no restart.
+    current = ['real', 'anime']
+    const result = await service.generate({ lane: 'anime', prompt: 'x' })
+    expect(result.lane).toBe('anime')
+    expect((await service.health()).workflows).toEqual(['real', 'anime'])
+  })
+})

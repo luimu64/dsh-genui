@@ -2,6 +2,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-chat/client'
 import { OpenUIRow } from './renderer'
+import { makeWorkflowRow } from './settings'
 import openuiCss from '@openuidev/react-ui/index.css'
 import defaultsCss from '@openuidev/react-ui/defaults.css'
 import localCss from './styles.css'
@@ -32,4 +33,16 @@ export function apply(ctx: Context): void {
       OpenUIRow,
     ),
   )
+
+  // Settings → General gets one row when the shell composes the settings service: the
+  // workflow switch. It writes this bundle's own volatile `workflows` field, so a deployment
+  // without Settings keeps the renderer and simply has no switch.
+  ctx.inject(['configForms'], (scoped) => {
+    scoped.slots.inject('settings.general.item', () =>
+      scoped.slots.register(
+        { name: 'settings.general.item', id: 'genui-workflows', order: 40 },
+        makeWorkflowRow(ctx),
+      ),
+    )
+  })
 }

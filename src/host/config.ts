@@ -1,7 +1,8 @@
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import Schema from '@deepseek-ai/schemastery'
-import { DEFAULT_WORKFLOWS } from '../shared/models'
+import type { Volatile } from '@deepseek-ai/cosmokit'
+import { DEFAULT_WORKFLOWS, parseWorkflows, type LaneId } from '../shared/models'
 
 export interface Config {
   /** Base URL of the local ComfyUI. */
@@ -21,8 +22,11 @@ export interface Config {
   /**
    * Image workflows this deployment exposes. Defaults to `['real']`; add `'anime'` to opt in
    * to the anime lane, its full-checkpoint presets and its prompt section.
+   *
+   * Volatile on purpose: the Settings row writes this field while the harness is running, and
+   * the request path reads the reference instead of a captured value.
    */
-  workflows: string[]
+  workflows: Volatile<string[]>
 }
 
 /**
@@ -37,7 +41,7 @@ export function defaultImagesDir(env: NodeJS.ProcessEnv = process.env, home = ho
   return join(data, 'dsh-genui', 'images')
 }
 
-export const Config: Schema<Config> = Schema.object({
+export const Config = Schema.object({
   comfyBase: Schema.string().default('http://127.0.0.1:8188'),
   imagesDir: Schema.string().default(defaultImagesDir()),
   maxBatch: Schema.number().default(8),
@@ -45,5 +49,14 @@ export const Config: Schema<Config> = Schema.object({
   minPngBytes: Schema.number().default(30_000),
   defaultOn: Schema.boolean().default(true),
   filePrefix: Schema.string().default('genui'),
-  workflows: Schema.array(Schema.string()).default([...DEFAULT_WORKFLOWS]),
+  workflows: Schema.array(Schema.string()).default([...DEFAULT_WORKFLOWS]).volatile(),
 })
+
+/**
+ * The workflows as they stand right now. A volatile field is a live reference, so this is
+ * read per request rather than captured at apply time - which is what lets the Settings row
+ * take effect on the next answer instead of the next restart.
+ */
+export function workflowsOf(config: Config): LaneId[] {
+  return parseWorkflows(config.workflows.get())
+}

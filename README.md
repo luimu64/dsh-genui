@@ -79,7 +79,7 @@ Resolved by `src/host/config.ts`; every key is optional.
 | `pollMs` | `750` | ComfyUI history poll interval while a job runs |
 | `minPngBytes` | `30000` | a smaller PNG is a failed render, not a picture |
 | `filePrefix` | `genui` | stem of render file names: `<filePrefix>_<lane>_<seed>.png` |
-| `workflows` | `[real]` | image workflows this deployment exposes; `anime` is opt-in |
+| `workflows` | `[real]` | image workflows this deployment exposes; `anime` is opt-in, and the value is volatile so Settings can change it live |
 | `defaultOn` | `true` | a conversation answers as an OpenUI program unless `/openui off` says otherwise |
 
 One ComfyUI job per batch: `batch_size = count`, one history entry, N images, so all frames of
@@ -94,12 +94,23 @@ else to install, no extra prompt tokens.
 `anime` is opt-in. Turning it on adds the anime lane, its fast/high graphs and its
 full-checkpoint presets; turning it off means none of that is loaded, advertised to the model
 or queued. A request that names a disabled lane is refused with a message saying what is
-enabled, rather than waiting on checkpoints that were never there:
+enabled, rather than waiting on checkpoints that were never there.
+
+**In the browser:** Settings → General → **Anime workflow**. The switch writes this bundle's
+config through the harness settings document (the profile's Cordis patch), and because the
+field is volatile the change lands on the next answer — the prompt section appears or
+disappears and `/genui/health` reports the new set, with no restart. Clearing the override
+returns the deployment to its composed default.
+
+**In a profile:** the same thing as a file, when you want it pinned rather than toggled:
 
 ```yaml
 # profile cordis.patch.yml, under the dsh-genui row
 workflows: [real, anime]
 ```
+
+The row only exists where the client composes the settings service (the stock web profile
+does). Without it the bundle still renders answers and there is simply no switch.
 
 What `anime` brings: `assets/anime.json`, `assets/anime-hq.json` and the preset graphs,
 the `anime` lane in the tool surface, booru-tag prompt conventions, and
@@ -246,7 +257,7 @@ Layout:
 src/host/     Cordis plugin: config, prompt section, mode store, /openui command,
               ComfyUI client, graph mutation, model registry, render store, routes
 src/client/   browser plugin: assistant-row renderer, OpenUI renderer, component library,
-              cache-first query provider, image styles
+              cache-first query provider, the Settings → General workflow row, image styles
 src/shared/   the lane/quality/preset roster both halves import
 assets/       committed ComfyUI graphs, the OpenUI prompt, its hand-written rules
 lib/          built bundles, committed
