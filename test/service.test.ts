@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { createGenuiService } from '../src/host/service'
 import { readRender, saveRender } from '../src/host/images'
 import { startFakeComfy } from './fixtures/comfy'
+import { testConfig } from './helpers'
 
 let fake: Awaited<ReturnType<typeof startFakeComfy>>
 let dir: string
@@ -13,13 +14,7 @@ let service: ReturnType<typeof createGenuiService>
 beforeAll(async () => {
   fake = await startFakeComfy({ imageBytes: new Uint8Array([137, 80, 78, 71]) })
   dir = await mkdtemp(join(tmpdir(), 'genui-'))
-  service = createGenuiService({
-    comfyBase: fake.base,
-    imagesDir: dir,
-    pollMs: 10,
-    maxBatch: 8,
-    minPngBytes: 4,
-  })
+  service = createGenuiService(testConfig({ comfyBase: fake.base, imagesDir: dir, pollMs: 10, minPngBytes: 4 }))
 })
 afterAll(async () => {
   fake.stop()
@@ -34,8 +29,8 @@ describe('generate', () => {
       prompt: 'a red fox',
       count: 1,
     })
-    expect(result.file).toBe('harness_real_1.png')
-    expect(result.url).toBe('/genui/images/harness_real_1.png')
+    expect(result.file).toBe('genui_real_1.png')
+    expect(result.url).toBe('/genui/images/genui_real_1.png')
     expect(result.images).toHaveLength(1)
     expect(await readRender(dir, result.file)).toEqual(new Uint8Array([137, 80, 78, 71]))
   })
@@ -66,15 +61,40 @@ describe('generate', () => {
     await expect(service.generate({ lane: 'edit', prompt: 'x' })).rejects.toThrow('edit_image')
   })
 
+  test('a preset reaches the queue and comes back in the metadata', async () => {
+    const result = await service.generate({ lane: 'anime', preset: 'dasiwa', prompt: 'x' })
+    expect(result.preset).toBe('dasiwa')
+    expect(result.images[0].preset).toBe('dasiwa')
+    const graph = fake.queued().at(-1) as any
+    expect(graph.prompt['1'].inputs.unet_name).toBe('dasiwaAnima_obsidianArchivesV2.safetensors')
+    expect(graph.prompt['6'].inputs.steps).toBe(30)
+  })
+
+  test('a preset on the real lane is refused before anything is queued', async () => {
+    const before = fake.queueCount()
+    await expect(service.generate({ lane: 'real', preset: 'miaoharem', prompt: 'x' })).rejects.toThrow(
+      'lane "anime"',
+    )
+    expect(fake.queueCount()).toBe(before)
+  })
+
+  test('upscale queues the hires pair and reports the factor', async () => {
+    const result = await service.generate({ lane: 'real', prompt: 'x', upscale: true })
+    expect(result.upscale).toBe(1.5)
+    const graph = fake.queued().at(-1) as any
+    expect(graph.prompt['21'].inputs.scale_by).toBe(1.5)
+    expect(graph.prompt['7'].inputs.samples).toEqual(['22', 0])
+  })
+
+  test('no upscale means the metadata carries no factor', async () => {
+    const result = await service.generate({ lane: 'real', prompt: 'x' })
+    expect(result.upscale).toBeUndefined()
+    expect(result.images[0].upscale).toBeUndefined()
+  })
+
   test('a junk frame fails the request instead of saving it', async () => {
     const tiny = await startFakeComfy({ imageBytes: new Uint8Array([1, 2]) })
-    const strict = createGenuiService({
-      comfyBase: tiny.base,
-      imagesDir: dir,
-      pollMs: 10,
-      maxBatch: 8,
-      minPngBytes: 30_000,
-    })
+    const strict = createGenuiService(testConfig({ comfyBase: tiny.base, imagesDir: dir, pollMs: 10, minPngBytes: 30_000 }))
     await expect(strict.generate({ lane: 'real', prompt: 'x' })).rejects.toThrow('failed render')
     tiny.stop()
   })
@@ -84,22 +104,16 @@ describe('edit', () => {
   test('edits the newest render when no source is given', async () => {
     const newer = await startFakeComfy({
       imageBytes: new Uint8Array([137, 80, 78, 71, 1, 2]),
-      filename: 'harness_edit_9.png',
+      filename: 'genui_edit_9.png',
     })
-    const editService = createGenuiService({
-      comfyBase: newer.base,
-      imagesDir: dir,
-      pollMs: 10,
-      maxBatch: 8,
-      minPngBytes: 4,
-    })
+    const editService = createGenuiService(testConfig({ comfyBase: newer.base, imagesDir: dir, pollMs: 10, minPngBytes: 4 }))
     await saveRender(dir, 'newest.png', new Uint8Array([137, 80, 78, 71]))
     await new Promise((r) => setTimeout(r, 20))
     const result = await editService.edit({ prompt: 'make it night' })
     expect(newer.uploads()).toEqual(['newest.png'])
-    expect(result.file).toBe('harness_edit_9.png')
+    expect(result.file).toBe('genui_edit_9.png')
     expect(result.lane).toBe('edit')
-    expect(result.url).toBe('/genui/images/harness_edit_9.png')
+    expect(result.url).toBe('/genui/images/genui_edit_9.png')
     const graph = newer.queued().at(-1) as any
     expect(graph.prompt['4'].inputs.image).toBe('source.png')
     expect(graph.prompt['9'].inputs.text).toBe('make it night')
@@ -107,13 +121,7 @@ describe('edit', () => {
   })
 
   test('an explicit source is used and an unknown one is refused', async () => {
-    const editService = createGenuiService({
-      comfyBase: fake.base,
-      imagesDir: dir,
-      pollMs: 10,
-      maxBatch: 8,
-      minPngBytes: 4,
-    })
+    const editService = createGenuiService(testConfig({ comfyBase: fake.base, imagesDir: dir, pollMs: 10, minPngBytes: 4 }))
     await saveRender(dir, 'older.png', new Uint8Array([137, 80, 78, 71]))
     await editService.edit({ prompt: 'make it night', source: 'older.png' })
     await expect(editService.edit({ prompt: 'x', source: '../etc/passwd' })).rejects.toThrow()
@@ -123,25 +131,13 @@ describe('edit', () => {
 
 describe('health', () => {
   test('reports comfy as down when the port is dead', async () => {
-    const dead = createGenuiService({
-      comfyBase: 'http://127.0.0.1:1',
-      imagesDir: dir,
-      pollMs: 10,
-      maxBatch: 8,
-      minPngBytes: 4,
-    })
+    const dead = createGenuiService(testConfig({ comfyBase: 'http://127.0.0.1:1', imagesDir: dir, pollMs: 10, minPngBytes: 4 }))
     expect(await dead.health()).toEqual({ comfy: false })
   })
 
   test('reports comfy as up when system_stats answers', async () => {
     const up = Bun.serve({ port: 0, fetch: () => Response.json({ system: { comfyui_version: '0.0' } }) })
-    const live = createGenuiService({
-      comfyBase: `http://127.0.0.1:${up.port}`,
-      imagesDir: dir,
-      pollMs: 10,
-      maxBatch: 8,
-      minPngBytes: 4,
-    })
+    const live = createGenuiService(testConfig({ comfyBase: `http://127.0.0.1:${up.port}`, imagesDir: dir, pollMs: 10, minPngBytes: 4 }))
     expect(await live.health()).toEqual({ comfy: true })
     up.stop(true)
   })

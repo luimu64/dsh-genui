@@ -22,7 +22,7 @@
   "4": {
     "class_type": "LoadImage",
     "inputs": {
-      "image": "harness_source.png"
+      "image": "genui_source.png"
     }
   },
   "5": {
@@ -207,7 +207,7 @@
         "18",
         0
       ],
-      "filename_prefix": "harness_edit"
+      "filename_prefix": "genui_edit"
     }
   }
 }

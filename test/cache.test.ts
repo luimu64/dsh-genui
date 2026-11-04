@@ -3,8 +3,8 @@ import { cachedRender, hydratedOnce, imageKey, imageCache, lookupRender, migrate
 
 function render(overrides: Partial<Rendered> = {}): Rendered {
   return {
-    url: '/genui/images/harness_real_1.png',
-    file: 'harness_real_1.png',
+    url: '/genui/images/genui_real_1.png',
+    file: 'genui_real_1.png',
     prompt: 'a red fox',
     lane: 'real',
     quality: 'fast',
@@ -22,8 +22,20 @@ describe('imageKey', () => {
 
   test('defaults match what the host would run', () => {
     expect(imageKey({ prompt: 'x' })).toBe(
-      JSON.stringify(['real', 'x', 'fast', 1, 832, 1216, null, null, null, null]),
+      JSON.stringify(['real', 'x', 'fast', 1, 832, 1216, null, null, null, null, null, 1]),
     )
+  })
+
+  test('a preset and a hires pass are their own pictures', () => {
+    expect(imageKey({ prompt: 'x', preset: 'dasiwa' })).not.toBe(imageKey({ prompt: 'x' }))
+    expect(imageKey({ prompt: 'x', upscale: 1.5 })).not.toBe(imageKey({ prompt: 'x' }))
+    expect(imageKey({ prompt: 'x', preset: 'dasiwa' })).not.toBe(
+      imageKey({ prompt: 'x', preset: 'miaoharem' }),
+    )
+  })
+
+  test('`upscale: true` and `upscale: 1.5` queue the same graph, so they hash alike', () => {
+    expect(imageKey({ prompt: 'x', upscale: true })).toBe(imageKey({ prompt: 'x', upscale: 1.5 }))
   })
 
   test('every field that changes the picture changes the key', () => {
@@ -39,7 +51,7 @@ describe('imageKey', () => {
       imageKey({ ...base, steps: 8 }),
       imageKey({ ...base, cfg: 3 }),
       imageKey({ ...base, negative: 'blurry' }),
-      imageKey({ ...base, source: 'harness_real_2.png' }),
+      imageKey({ ...base, source: 'genui_real_2.png' }),
     ])
     expect(keys.size).toBe(11)
   })
@@ -50,6 +62,13 @@ describe('migrateKey', () => {
     const old = JSON.stringify(['real', 'a red fox', 832, 1216, 4, 1, null])
     expect(migrateKey(old)).toBe(
       imageKey({ lane: 'real', prompt: 'a red fox', quality: 'fast', count: 1, width: 832, height: 1216, steps: 4, cfg: 1, negative: null }),
+    )
+  })
+
+  test('rewrites the ten-field shape from before presets and hires', () => {
+    const old = JSON.stringify(['anime', '1girl', 'high', 2, 832, 1216, 30, 5, null, null])
+    expect(migrateKey(old)).toBe(
+      imageKey({ lane: 'anime', prompt: '1girl', quality: 'high', count: 2, width: 832, height: 1216, steps: 30, cfg: 5, negative: null, source: null }),
     )
   })
 

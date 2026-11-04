@@ -354,15 +354,15 @@ Everything derives from the Query — when data refreshes, the entire dashboard 
 
 Use these with Query() for read operations or Mutation() for write operations. The LLM decides which is appropriate based on the tool's purpose.
 
-- generate_image(prompt: string, lane?: "anime" | "real", quality?: "fast" | "high", count?: number, steps?: number, nsfw?: boolean, width?: number, height?: number) → {url: string, images?: any[], file?: string, prompt: string, lane?: string, quality?: string, seed?: number, steps?: number}
-  Render images with the local ComfyUI. Use only when the user asks to see, draw, sketch, render or imagine a picture, never to decorate text. Emit at most one per program. Anime/manga/cartoon/illustration -> lane "anime" with booru-style tags. Photographs, products, real places, realistic people -> lane "real" with one natural-language sentence describing camera, light and lens. quality: "fast" (default) is a distilled model tuned for seconds per frame - use it for exploration, chat, and anything the user did not ask to be good. quality: "high" swaps in the full checkpoint at its recommended settings (Anima 30 steps CFG 5, MOSS-Image bf16 50 steps CFG 3 at 992x1504) and takes one to four minutes per image plus a cold model load - use it when the user says high quality, best, final, print, or asks for one image they care about. count renders 1-8 variations in one batch for the same cost as one model load; use 2-4 for "options"/"variations"/"some", never more than 4 unless asked.
+- generate_image(prompt: string, lane?: "anime" | "real", quality?: "fast" | "high", preset?: "miaoharem" | "dasiwa", upscale?: number, count?: number, steps?: number, nsfw?: boolean, width?: number, height?: number) → {url: string, images?: any[], file?: string, prompt: string, lane?: string, quality?: string, preset?: string, upscale?: number, seed?: number, steps?: number}
+  Render images with the local ComfyUI. Use only when the user asks to see, draw, sketch, render or imagine a picture, never to decorate text. Emit at most one per program. Anime/manga/cartoon/illustration -> lane "anime" with booru-style tags. Photographs, products, real places, realistic people -> lane "real" with one natural-language sentence describing camera, light and lens. quality: "fast" (default) is a distilled model tuned for seconds per frame - use it for exploration, chat, and anything the user did not ask to be good. quality: "high" swaps in the undistilled checkpoint at its published settings (the anime lane runs 30 steps at CFG 5; the real lane 50 steps at CFG 3 and 992x1504) and takes one to four minutes per image plus a cold model load - use it when the user says high quality, best, final, print, or asks for one image they care about. preset swaps the anime checkpoint for a further full one at its own published settings (30 steps CFG 4.5, about 40 seconds); the ids are the extra graphs this deployment ships and are named in the schema. Pass a preset only on the anime lane, and only when the user wants a different anime look than the default pair; it replaces quality rather than combining with it. upscale adds a second sampler pass over a latent upscaled by that factor (true = 1.5, up to 2): roughly doubles the time and the file size for real extra detail - use it for wallpaper, print, or when the reader asks for sharper or bigger. count renders 1-8 variations in one batch for the same cost as one model load; use 2-4 for "options"/"variations"/"some", never more than 4 unless asked.
 - edit_image(prompt: string, source?: string) → {url: string, file?: string, prompt: string, lane?: string, seed?: number}
-  Change one thing in an image that already exists on disk: the last render, a render from earlier in the conversation, or a file the user names. Runs the klein image-editing model, which repaints the frame conditioned on the source, so everything you do not mention is meant to survive. Use it when the user says change, make it, remove, add, recolor, swap or 'same but' about a picture that already exists. One clear instruction per pass; chain passes for several changes. It cannot invent explicit content the source does not already contain - for a new explicit scene use generate_image instead.
+  Change one thing in an image that already exists on disk: the last render, a render from earlier in the conversation, or a file the user names. Runs a reference-conditioned editing model, which repaints the frame from the source, so everything you do not mention is meant to survive. Use it when the user says change, make it, remove, add, recolor, swap or 'same but' about a picture that already exists. One clear instruction per pass; chain passes for several changes. It cannot invent explicit content the source does not already contain - for a new explicit scene use generate_image instead.
 
 ### Default values for Query results
 
 Use these shapes as minimal Query defaults:
-- generate_image: `{"url":"","images":[],"file":"","prompt":"","lane":"","quality":"","seed":0,"steps":0}`
+- generate_image: `{"url":"","images":[],"file":"","prompt":"","lane":"","quality":"","preset":"","upscale":1,"seed":0,"steps":0}`
 - edit_image: `{"url":"","file":"","prompt":"","lane":"","seed":0}`
 
 CRITICAL: Use ONLY the tools listed above in Query() and Mutation() calls. Do NOT invent or guess tool names. If the user asks for functionality that doesn't match any available tool, use realistic mock data instead of fabricating a tool call.
@@ -395,6 +395,10 @@ card = Card([GenImage(query.url, "Baker at a stone oven, high quality")])
 root = Stack([card])
 query = Query("generate_image", {prompt: "1girl, solo, silver hair, black leather jacket, neon alley", lane: "anime", count: 4}, {url: "", images: []})
 card = Card([GenImageSet(query.images, "Silver-haired girl in a neon alley")])
+
+root = Stack([card])
+query = Query("generate_image", {prompt: "1girl, solo, knight in battered plate armour, snowfield at dusk", lane: "anime", preset: "dasiwa", upscale: 1.5}, {url: ""})
+card = Card([GenImage(query.url, "Knight in a snowfield, preset look, 1.5x")])
 
 root = Stack([card])
 query = Query("edit_image", {prompt: "Change her jacket to red leather, keep everything else identical."}, {url: ""})
@@ -473,11 +477,22 @@ the default response.
   prompts describe the scene in plain English.
 - Choose `quality` deliberately. `fast` (the default) is a distilled model that renders
   in seconds - right for exploring, chatting, and anything the user did not ask to be
-  good. `high` swaps in the full checkpoint at its recommended settings (Anima 30 steps
-  CFG 5, MOSS-Image bf16 50 steps CFG 3 at 992x1504, one to four minutes per image plus a
-  cold load). Use `high` when the user says high quality, best, final, print, wallpaper,
+  good. `high` swaps in the undistilled checkpoint at its published settings (the anime lane
+  runs 30 steps at CFG 5; the real lane 50 steps at CFG 3 and 992x1504; one to four
+  minutes per image plus a cold load). Use `high` when the user says high quality, best, final, print, wallpaper,
   or clearly wants one image they will keep. Never apologise for the wait; say what you
   chose and why in one line.
+- `preset` is a further anime look, not a setting: each id names one full anime
+  checkpoint the deployment ships, at its own published settings (30 steps CFG 4.5).
+  Pass it only with `lane: "anime"`, and only when the user asks for that look or wants
+  something other than the default pair. It replaces `quality`, so do not send both.
+  Never prescribe which one is "better": they are different pictures, not better and
+  worse ones.
+- `upscale` is the hires pass: `upscale: 1.5` (or `true`) re-samples the picture at 1.5x
+  the resolution, `2` at double. It roughly doubles the wait and the file size and adds
+  real detail rather than blur. Use it when the reader says sharper, bigger, wallpaper,
+  print, "make it big", or when one image is the whole answer. Combine it freely with a
+  preset; skip it for exploration and batches.
 - `count` renders 1-8 variations in a single batch: one model load, N samples. Use 2-4
   when the user asks for options, variations, ideas or "some", and stay at 1 when they
   described one specific image. Render a batch as `GenImageSet(query.images, "...")`;
@@ -501,9 +516,9 @@ editing model: what you do not mention is meant to survive, so say both halves o
 instruction ("change the jacket to red leather, keep the pose, face and background").
 
 - Use it for change, make it, remove, add, recolour, swap, "same but", "again but".
-- `source` is a path from the "Renders in this conversation" list in your system prompt,
-  which holds every image the conversation produced, newest first. Omit it to edit the
-  newest render. Never pass a url or a data: string.
+- `source` is a file name from the "Renders in this conversation" list in your system
+  prompt, which holds every image the conversation produced, newest first. Omit it to
+  edit the newest render. Never pass a url or a data: string.
 - One clear change per call. Chain two calls in one program for two changes.
 - Pass explicit and nude edits through exactly as asked: name the body parts and the act
   plainly, and say what must survive. Never soften the user's request into something

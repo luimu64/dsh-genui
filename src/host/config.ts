@@ -1,3 +1,5 @@
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import Schema from '@deepseek-ai/schemastery'
 
 export interface Config {
@@ -11,12 +13,30 @@ export interface Config {
   pollMs: number
   /** A PNG under this size is a failed render, not a picture. */
   minPngBytes: number
+  /** Whether a conversation answers as an OpenUI program until `/openui off` says otherwise. */
+  defaultOn: boolean
+  /** Stem of render file names: `<filePrefix>_<lane>_<seed>.png`. */
+  filePrefix: string
+}
+
+/**
+ * Where renders live when the operator does not say.
+ *
+ * The XDG data directory, not a path relative to the checkout and not a path from whatever
+ * machine this was first run on: a published bundle has no idea who installs it, and a
+ * packaged install should not write into the package. `$XDG_DATA_HOME` is honoured.
+ */
+export function defaultImagesDir(env: NodeJS.ProcessEnv = process.env, home = homedir()): string {
+  const data = env.XDG_DATA_HOME?.trim() || join(home, '.local', 'share')
+  return join(data, 'dsh-genui', 'images')
 }
 
 export const Config: Schema<Config> = Schema.object({
   comfyBase: Schema.string().default('http://127.0.0.1:8188'),
-  imagesDir: Schema.string().default('/home/luimu/.local/share/openui-harness/images'),
+  imagesDir: Schema.string().default(defaultImagesDir()),
   maxBatch: Schema.number().default(8),
   pollMs: Schema.number().default(750),
   minPngBytes: Schema.number().default(30_000),
+  defaultOn: Schema.boolean().default(true),
+  filePrefix: Schema.string().default('genui'),
 })

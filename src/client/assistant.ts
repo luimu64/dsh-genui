@@ -38,6 +38,26 @@ export function observeStep(key: string, status: AssistantRowData['status']): bo
   return liveSteps.has(key)
 }
 
+/**
+ * Whether this row is the last answer in the conversation — the turn the user is looking at.
+ *
+ * Read off the DOM rather than from React state: every row carries `data-genui-step`, and the
+ * newest answer is the last one, so a query fired by a fresh turn can ask "am I the tail?" and
+ * get a truthful answer without a second render pass to discover the highest turn.
+ *
+ * This is the fallback `liveSteps` cannot provide. A provider that publishes an assistant step
+ * already `settled` never paints `running`, so a genuinely new turn was judged historical and
+ * the gate starved it: the query returned `missing` before any request, and the reader got a
+ * hole with a retry button instead of a picture. Earlier turns stay inert, and a cache hit
+ * still costs no GPU time.
+ */
+export function isTailStep(key: string): boolean {
+  if (typeof document === 'undefined') return false
+  const rows = document.querySelectorAll('[data-genui-step]')
+  const last = rows[rows.length - 1]
+  return last !== undefined && last.getAttribute('data-genui-step') === key
+}
+
 /** Test seam: forget what this page session has seen stream. */
 export function resetLiveSteps(): void {
   liveSteps.clear()

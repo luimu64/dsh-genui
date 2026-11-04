@@ -11,19 +11,27 @@ import { join } from 'node:path'
 const root = join(import.meta.dir, '..')
 const nodeRequire = createRequire(join(root, 'package.json'))
 
-function element() {
+/** The handful of DOM members the client touches, plus a head that remembers its children. */
+function element(children: any[] = []) {
   return {
     dataset: {} as Record<string, string>,
     style: {} as Record<string, string>,
     textContent: '',
     className: '',
-    append() {},
-    appendChild() {},
+    append(...nodes: any[]) {
+      children.push(...nodes)
+    },
+    appendChild(node: any) {
+      children.push(node)
+    },
     remove() {},
     setAttribute() {},
     addEventListener() {},
     removeEventListener() {},
     querySelector: () => null,
+    get text() {
+      return children.map((child) => child.textContent).join('')
+    },
   }
 }
 
@@ -125,7 +133,10 @@ describe('client bundle', () => {
       priority: -1,
     })
     expect(typeof registrations[0].component).toBe('function')
-    // The theme attribute and one stylesheet: the OpenUI tokens and the genui image rules.
-    expect(document.documentElement.dataset.openuiTheme).toBe('dark')
+    // One stylesheet carries OpenUI's own CSS and the plugin's rules. No theme attribute:
+    // the plugin reads the shell's `--dsw-*` tokens instead of latching OpenUI to dark, so a
+    // light shell does not grow dark cards.
+    expect(document.documentElement.dataset.openuiTheme).toBeUndefined()
+    expect((document.head as any).text).toContain('--openui-text-neutral-primary: var(--dsw-alias-label-primary')
   })
 })

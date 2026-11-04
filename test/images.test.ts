@@ -19,7 +19,7 @@ describe('images', () => {
   test('rejects traversal names', () => {
     expect(() => safeImageName('../secret.png')).toThrow()
     expect(() => safeImageName('a/b.png')).toThrow()
-    expect(safeImageName('harness_real_1.png')).toBe('harness_real_1.png')
+    expect(safeImageName('genui_real_1.png')).toBe('genui_real_1.png')
   })
 
   test('rejects anything that is not a plain png name', () => {
@@ -33,8 +33,8 @@ describe('images', () => {
 
   test('saves and reads a render', async () => {
     const dir = await tempDir()
-    const file = await saveRender(dir, 'harness_real_1.png', new Uint8Array([1, 2, 3]))
-    expect(file).toBe('harness_real_1.png')
+    const file = await saveRender(dir, 'genui_real_1.png', new Uint8Array([1, 2, 3]))
+    expect(file).toBe('genui_real_1.png')
     expect(await readRender(dir, file)).toEqual(new Uint8Array([1, 2, 3]))
   })
 

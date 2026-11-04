@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { readFileSync } from 'node:fs'
 import pkg from '../package.json'
 
 describe('bundle manifest', () => {
@@ -16,5 +17,19 @@ describe('bundle manifest', () => {
 
   test('pins the supported dsh range', () => {
     expect(pkg.engines.dsh).toBe('>=0.2.1-rc.5 <0.3.0')
+  })
+})
+
+describe('publication hygiene', () => {
+  test('the shipped config carries no absolute path from a developer machine', () => {
+    const patch = readFileSync(new URL('../cordis.patch.yml', import.meta.url), 'utf8')
+    expect(patch).not.toContain('/home/')
+    expect(JSON.stringify(pkg)).not.toContain('/home/')
+  })
+
+  test('declares the metadata a public package needs', () => {
+    expect(pkg.license).toBe('MIT')
+    expect(typeof pkg.description).toBe('string')
+    expect(pkg.repository.url).toContain('dsh-genui')
   })
 })

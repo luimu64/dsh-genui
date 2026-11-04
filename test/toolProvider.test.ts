@@ -82,12 +82,31 @@ describe('makeToolProvider', () => {
     expect(calls).toHaveLength(1)
   })
 
+  test('the newest turn renders even when it was never seen streaming', async () => {
+    // A provider that publishes an assistant step already settled never paints `running`,
+    // so `allowGeneration` stays false for a turn the user just asked for. Being the tail is
+    // the signal that it is theirs to render.
+    const prompt = 'fresh turn, settled row'
+    reply = { status: 200, body: rendered(prompt) }
+    const provider = makeToolProvider({ allowGeneration: false, isTail: () => true })
+    const result = await provider.generate_image({ prompt })
+    expect(result.missing).toBeUndefined()
+    expect(calls).toHaveLength(1)
+  })
+
+  test('an earlier turn is still inert while the tail renders', async () => {
+    const provider = makeToolProvider({ allowGeneration: false, isTail: () => false })
+    const result = await provider.generate_image({ prompt: 'scrolled-back turn' })
+    expect(result.missing).toBe(true)
+    expect(calls).toHaveLength(0)
+  })
+
   test('edit_image goes to the edit route with its source', async () => {
     reply = { status: 200, body: { ...rendered('edited'), lane: 'edit' } }
     const provider = makeToolProvider({ allowGeneration: true })
-    await provider.edit_image({ prompt: 'make it night', source: 'harness_real_1.png' })
+    await provider.edit_image({ prompt: 'make it night', source: 'genui_real_1.png' })
     expect(calls[0].url).toContain('/genui/edit')
-    expect(calls[0].body).toEqual({ req: { prompt: 'make it night', source: 'harness_real_1.png' } })
+    expect(calls[0].body).toEqual({ req: { prompt: 'make it night', source: 'genui_real_1.png' } })
   })
 
   test('a missing prompt fails before any request', async () => {

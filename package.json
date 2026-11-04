@@ -1,7 +1,26 @@
 {
   "name": "dsh-genui",
-  "version": "0.1.0",
-  "private": true,
+  "version": "0.2.0",
+  "description": "DeepSeek Harness bundle: answers rendered as OpenUI Lang interface, with generate_image and edit_image backed by a local ComfyUI",
+  "license": "MIT",
+  "author": "luimu64",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/luimu64/dsh-genui.git"
+  },
+  "homepage": "https://github.com/luimu64/dsh-genui#readme",
+  "bugs": {
+    "url": "https://github.com/luimu64/dsh-genui/issues"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "openui",
+    "comfyui",
+    "bundle",
+    "plugin",
+    "image-generation"
+  ],
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -16,8 +35,10 @@
   "files": [
     "lib/",
     "assets/",
+    "docs/",
     "cordis.patch.yml",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "dsh": {
     "manifestVersion": 1,
@@ -39,7 +60,8 @@
   "scripts": {
     "build": "bun run scripts/build.mjs",
     "test": "bun test",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prompt": "bash scripts/gen-prompt.sh"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.5",

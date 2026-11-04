@@ -33,7 +33,7 @@ function bytesOf(imageBytes: number | Uint8Array): Uint8Array {
 
 export async function startFakeComfy(options: FakeComfyOptions = {}): Promise<FakeComfy> {
   const image = bytesOf(options.imageBytes ?? 4)
-  const filename = options.filename ?? 'harness_real_1.png'
+  const filename = options.filename ?? 'genui_real_1.png'
   const queued: unknown[] = []
   const uploads: string[] = []
   const started = Date.now()

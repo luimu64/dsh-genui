@@ -29,6 +29,8 @@ function missing(args: Record<string, unknown>): Rendered {
     prompt: String(args.prompt ?? ''),
     lane: String(args.lane ?? 'real'),
     quality: typeof args.quality === 'string' ? args.quality : undefined,
+    preset: typeof args.preset === 'string' ? args.preset : undefined,
+    upscale: typeof args.upscale === 'number' ? args.upscale : undefined,
     seed: 0,
     steps: 0,
     missing: true,
@@ -45,7 +47,7 @@ function requiredPrompt(args: Record<string, unknown>, tool: string): void {
 async function render(
   args: Record<string, unknown>,
   path: string,
-  allowGeneration: boolean,
+  mayGenerate: () => boolean,
   tool: string,
 ): Promise<Rendered> {
   requiredPrompt(args, tool)
@@ -53,7 +55,7 @@ async function render(
   const key = imageKey(args)
   const hit = await lookupRender(key)
   if (hit) return hit
-  if (!allowGeneration) return missing(args)
+  if (!mayGenerate()) return missing(args)
   return cachedRender(key, () => withRetry(() => post(path, { req: args })))
 }
 
@@ -64,9 +66,19 @@ export interface ToolProvider {
   edit_image(args: Record<string, unknown>): Promise<Rendered>
 }
 
-export function makeToolProvider(opts: { allowGeneration: boolean }): ToolProvider {
+/**
+ * `isTail` is the fallback for a provider that never paints a step as `running`: the newest
+ * answer is the one the user is looking at, so it may queue work even when the gate never saw
+ * it stream. It is read at request time rather than when the provider is built, because it
+ * inspects the DOM and the query fires after React has committed the row.
+ */
+export function makeToolProvider(opts: {
+  allowGeneration: boolean
+  isTail?: () => boolean
+}): ToolProvider {
+  const mayGenerate = () => opts.allowGeneration || (opts.isTail?.() ?? false)
   return {
-    generate_image: (args) => render(args, '/genui/generate', opts.allowGeneration, 'generate_image'),
-    edit_image: (args) => render(args, '/genui/edit', opts.allowGeneration, 'edit_image'),
+    generate_image: (args) => render(args, '/genui/generate', mayGenerate, 'generate_image'),
+    edit_image: (args) => render(args, '/genui/edit', mayGenerate, 'edit_image'),
   }
 }

@@ -88,7 +88,7 @@ function closingParen(text: string, open: number): number {
 /**
  * A plain string literal, or the literal tail of `<stray word> "literal"`.
  *
- * The second shape is the Callout slip seen on the user's machine:
+ * The second shape is a Callout slip seen in practice:
  * `Callout("info", "Title", results "Swapped the …")` — a dropped comma left an undefined
  * word in front of the description. The word is not a statement in the program, so it
  * cannot be a value; the literal after it is the text that belongs in the slot. Nothing
@@ -176,7 +176,7 @@ function repairCall(
   if (name === "Query" || name === "Mutation") {
     // A tool argument that names a statement (`prompt = "…"`, then `{prompt: prompt}`)
     // is evaluated with only Query/Mutation results in scope, so a plain value statement
-    // arrives at the tool as `null` - the Rust bridge then rejects it as a type error and
+    // arrives at the tool as `null` - the host route then rejects it as a type error and
     // the picture never renders. Inlining a statement whose whole value is one unambiguous
     // string literal restores exactly the text the tool needs. Ambiguous or computed
     // statements are left alone: better a visible, honest failure than a guess.

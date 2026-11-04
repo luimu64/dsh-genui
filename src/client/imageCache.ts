@@ -10,6 +10,10 @@ export type Rendered = {
   prompt: string;
   lane: string;
   quality?: string;
+  /** Which full anime checkpoint rendered it, when the query asked for a preset. */
+  preset?: string;
+  /** The hires factor, present only when the refine pass ran. */
+  upscale?: number;
   seed: number;
   steps: number;
   /** Local path of the first image; `edit_image` takes it as `source`. */
@@ -38,14 +42,16 @@ export const imageCache = mem;
 
 /**
  * Only the fields that change the picture, so cosmetic arg diffs still hit the cache.
- * `quality`, `count` and the edit `source` do change the picture, so they are part of the
- * key: a fast render must not answer a request for a high-quality one, and an edit of
- * another file must not replay this one. The dispatcher always writes the enforced
- * quality into the args first (`withSelectedQuality`), so the key agrees with the graph
- * Rust actually queues.
+ * `quality`, `count`, `preset`, `upscale` and the edit `source` do change the picture, so they
+ * are part of the key: a fast render must not answer a request for a high-quality one, a
+ * preset is a different checkpoint, a hires card is a different pass, and an edit of another
+ * file must not replay this one. The provider keys the arguments it is about to POST, so the
+ * key agrees with the graph the host actually queues.
  */
 export function imageKey(args: Record<string, unknown>): string {
   const norm = (v: unknown) => (typeof v === "string" ? v.trim().replace(/\s+/g, " ") : v);
+  // `upscale: true` and `upscale: 1.5` queue the same graph, so they hash the same.
+  const upscale = args.upscale === true ? 1.5 : typeof args.upscale === "number" ? args.upscale : 1;
   return JSON.stringify([
     norm(args.lane) ?? "real",
     norm(args.prompt),
@@ -57,14 +63,20 @@ export function imageKey(args: Record<string, unknown>): string {
     args.cfg ?? null,
     norm(args.negative) ?? null,
     norm(args.source) ?? null,
+    norm(args.preset) ?? null,
+    upscale,
   ]);
 }
 
 /**
- * The key is a positional array, so adding `quality`, `count` and `source` silently orphaned
- * every render stored by an older build: the same request hashed to a new key, missed, and
- * was regenerated on the next launch. Rewrite the 7-field shape under the current key. Those
- * entries predate the quality picker, so they were all fast/single with no edit source.
+ * The key is a positional array, so adding a field silently orphaned every render stored by an
+ * older build: the same request hashed to a new key, missed, and was regenerated on the next
+ * launch. Two shapes predate the current one and are rewritten in place:
+ *
+ *  - 7 fields (lane, prompt, width, height, steps, cfg, negative): before the quality picker,
+ *    so every entry was fast, single, with no edit source;
+ *  - 10 fields (…, quality, count, …, source): before presets and the hires pass, so no preset
+ *    and no upscale.
  */
 export function migrateKey(key: string): string | null {
   let parts: unknown;
@@ -73,21 +85,36 @@ export function migrateKey(key: string): string | null {
   } catch {
     return null;
   }
-  if (!Array.isArray(parts) || parts.length !== 7) return null;
-  const [lane, prompt, width, height, steps, cfg, negative] = parts;
-  return imageKey({ lane, prompt, width, height, steps, cfg, negative });
+  if (!Array.isArray(parts)) return null;
+  if (parts.length === 7) {
+    const [lane, prompt, width, height, steps, cfg, negative] = parts;
+    return imageKey({ lane, prompt, width, height, steps, cfg, negative });
+  }
+  if (parts.length === 10) {
+    const [lane, prompt, quality, count, width, height, steps, cfg, negative, source] = parts;
+    return imageKey({ lane, prompt, quality, count, width, height, steps, cfg, negative, source });
+  }
+  return null;
 }
+
+const DB_NAME = "dsh-genui-images";
+const STORE = "images";
+/**
+ * Name a previous build of this plugin used for the same store. Its entries are the right
+ * pictures, so they are adopted once on startup instead of costing every stored answer a
+ * re-render. The old database is read, never deleted.
+ */
+const LEGACY_DB_NAME = "minx-images";
 
 let db: Promise<IDBDatabase | null> | null = null;
 
-function open(): Promise<IDBDatabase | null> {
-  if (db) return db;
-  db = new Promise((resolve) => {
+function openNamed(name: string): Promise<IDBDatabase | null> {
+  return new Promise((resolve) => {
     try {
-      const req = indexedDB.open("minx-images", 1);
+      const req = indexedDB.open(name, 1);
       req.onupgradeneeded = () => {
-        if (!req.result.objectStoreNames.contains("images")) {
-          req.result.createObjectStore("images");
+        if (!req.result.objectStoreNames.contains(STORE)) {
+          req.result.createObjectStore(STORE);
         }
       };
       req.onsuccess = () => resolve(req.result);
@@ -96,20 +123,25 @@ function open(): Promise<IDBDatabase | null> {
       resolve(null);
     }
   });
+}
+
+function open(): Promise<IDBDatabase | null> {
+  if (!db) db = openNamed(DB_NAME);
   return db;
 }
 
-export async function hydrate(): Promise<void> {
-  const conn = await open();
-  if (!conn) return;
+/** Read every stored render, re-keying entries written by an older cache-key shape. */
+async function loadStore(conn: IDBDatabase): Promise<number> {
+  let count = 0;
   await new Promise<void>((resolve) => {
     // Readwrite so an old-shape key can be re-keyed in place, keeping its image.
-    const tx = conn.transaction("images", "readwrite");
-    const store = tx.objectStore("images");
+    const tx = conn.transaction(STORE, "readwrite");
+    const store = tx.objectStore(STORE);
     const req = store.openCursor();
     req.onsuccess = () => {
       const cur = req.result;
       if (!cur) return resolve();
+      count += 1;
       const key = String(cur.key);
       const value = cur.value as Rendered;
       mem.set(key, value);
@@ -123,13 +155,50 @@ export async function hydrate(): Promise<void> {
     };
     req.onerror = () => resolve();
   });
+  return count;
+}
+
+/** Copy the legacy store into this one, once, when this store is empty. */
+async function adoptLegacy(conn: IDBDatabase): Promise<void> {
+  const legacy = await openNamed(LEGACY_DB_NAME);
+  if (!legacy) return;
+  try {
+    await new Promise<void>((resolve) => {
+      const req = legacy.transaction(STORE, "readonly").objectStore(STORE).openCursor();
+      req.onsuccess = () => {
+        const cur = req.result;
+        if (!cur) return resolve();
+        const key = migrateKey(String(cur.key)) ?? String(cur.key);
+        const value = cur.value as Rendered;
+        if (!mem.has(key)) {
+          mem.set(key, value);
+          try {
+            conn.transaction(STORE, "readwrite").objectStore(STORE).put(value, key);
+          } catch {
+            // A failed copy only costs a render later.
+          }
+        }
+        cur.continue();
+      };
+      req.onerror = () => resolve();
+    });
+  } finally {
+    legacy.close();
+  }
+}
+
+export async function hydrate(): Promise<void> {
+  const conn = await open();
+  if (!conn) return;
+  const seen = await loadStore(conn);
+  if (seen === 0) await adoptLegacy(conn);
 }
 
 export function persistImage(key: string, value: Rendered) {
   void open().then((conn) => {
     if (!conn) return;
     try {
-      conn.transaction("images", "readwrite").objectStore("images").put(value, key);
+      conn.transaction(STORE, "readwrite").objectStore(STORE).put(value, key);
     } catch {
       // Losing the cache is acceptable; it only costs a re-render later.
     }
@@ -174,7 +243,7 @@ export function recordedImage(args: Record<string, unknown>): Rendered | undefin
 }
 
 /**
- * The only way the app should render: memory hit, else a shared in-flight render, else
+ * The only way a render should happen: memory hit, else a shared in-flight render, else
  * `produce`. Without the in-flight map every re-render of the same `Query()` fires its own
  * ComfyUI job, which both wastes GPU time and trips over ComfyUI's single-queue error.
  */

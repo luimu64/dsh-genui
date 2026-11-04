@@ -1,9 +1,11 @@
 import { describe, expect, test } from 'bun:test'
+import { readFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openuiPrompt, registerAgentPrompt, renderList } from '../src/host/prompt'
 import { saveRender } from '../src/host/images'
+import { testConfig } from './helpers'
 
 async function tempDir() {
   return mkdtemp(join(tmpdir(), 'genui-'))
@@ -85,17 +87,13 @@ describe('registerAgentPrompt', () => {
       },
     } as any
 
-    registerAgentPrompt(ctx, {
-      comfyBase: 'http://127.0.0.1:8188',
-      imagesDir: '/nonexistent/genui-images',
-      maxBatch: 8,
-      pollMs: 750,
-      minPngBytes: 30_000,
-    }, {
+    registerAgentPrompt(ctx, testConfig({ defaultOn: false }), {
       file: '/tmp/x.json',
+      defaultOn: false,
       isOn: (id: string) => on.has(id),
       set: (id: string, next: boolean) => (next ? on.add(id) : on.delete(id)),
       sessions: () => [...on],
+      offSessions: () => [],
     })
 
     const assemble = listeners.get('system-prompt/assemble')
@@ -127,5 +125,17 @@ describe('registerAgentPrompt', () => {
     on.delete('s1')
     const back = await assemble!({ ...base }, { agent: agent('s1') }, next)
     expect(back.sections).toHaveLength(1)
+  })
+})
+
+describe('the committed prompt', () => {
+  test('ends with the rules asset, so a regeneration cannot silently drop them', () => {
+    const rules = readFileSync(new URL('../assets/prompt-rules.md', import.meta.url), 'utf8').trimEnd()
+    expect(rules.length).toBeGreaterThan(1000)
+    expect(openuiPrompt().trimEnd().endsWith(rules)).toBe(true)
+  })
+
+  test('carries no absolute path from the machine that generated it', () => {
+    expect(openuiPrompt()).not.toContain('/home/')
   })
 })

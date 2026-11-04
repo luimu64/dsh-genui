@@ -1,5 +1,5 @@
 /**
- * The ComfyUI HTTP client, ported from `Comfy::queue/wait/fetch/upload` in `comfy.rs`.
+ * The ComfyUI HTTP client: queue a graph, wait for it, fetch the frames, upload a source.
  *
  * `wait` polls `/history/:id` because ComfyUI reports progress nowhere else without a
  * websocket; the poll interval is the only knob that matters at these render times.

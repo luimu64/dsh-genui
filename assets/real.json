@@ -48,7 +48,7 @@
   },
   "9": {
     "class_type": "SaveImage",
-    "inputs": { "images": ["7", 0], "filename_prefix": "harness_real" }
+    "inputs": { "images": ["7", 0], "filename_prefix": "genui_real" }
   },
   "10": {
     "class_type": "LoraLoaderModelOnly",

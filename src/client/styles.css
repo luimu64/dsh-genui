@@ -6,30 +6,281 @@
  *  - `[data-genui-overlay]` holds the fullscreen viewer, which is appended to <body> and
  *    therefore outside `.genui-root`.
  *
- * OpenUI's own components are styled by @openuidev/react-ui's index.css + defaults.css,
- * injected once by the plugin. This file only covers the genui image UI and the row
- * states, so no DSH chrome can be reached by these selectors.
+ * One palette. The harness paints with `--dsw-*` (flipped by `body[data-ds-dark-theme]`),
+ * OpenUI ships its own Material-flavoured `--openui-*` roles, and the image block below used
+ * to carry a hand-copied Material 3 purple. Both extra palettes are re-pointed at the harness
+ * roles below: a program cannot paint a card, a label or a button in a colour the thread has
+ * never used, and light/dark costs one switch in the shell instead of a second theme kept in
+ * sync by hand.
  */
 
-/* The Material 3 roles the ported image block reads. genui defined them in its :root;
-   here they are scoped so they cannot leak into the harness palette. */
+/* ---------- token bridge ---------- */
+
+/* Declared on the body rather than on `.genui-root`: OpenUI portals its modals, galleries and
+   date pickers into `document.body`, and a portal that missed the bridge would inherit
+   OpenUI's own dark palette — one light-mode surface in an otherwise dark answer. Nothing
+   else reads `--openui-*`, so declaring another library's role names document-wide costs the
+   shell nothing. */
+body {
+  /* Surfaces. `foreground` is OpenUI's card face, `background` the page behind it. */
+  --openui-background: var(--dsw-alias-bg-base, #ffffff);
+  --openui-foreground: var(--dsw-alias-bg-layer-1, #ffffff);
+  --openui-popover-background: var(--dsw-alias-bg-layer-2, #f7f7f8);
+  --openui-inverted-background: var(--dsw-alias-brand-primary, #1b1b1f);
+
+  --openui-sunk-light: var(--dsw-alias-bg-layer-1, #ffffff);
+  --openui-sunk: var(--dsw-alias-markdown-code-block, #f4f4f6);
+  --openui-sunk-deep: var(--dsw-alias-bg-layer-3, #f0f0f2);
+  --openui-elevated-light: var(--dsw-alias-bg-layer-1, #ffffff);
+  --openui-elevated: var(--dsw-alias-bg-layer-2, #f7f7f8);
+  --openui-elevated-strong: var(--dsw-alias-bg-layer-3, #f0f0f2);
+  --openui-elevated-intense: var(--dsw-alias-bg-layer-3, #f0f0f2);
+  --openui-overlay: var(--dsw-alias-bg-mask-1, rgba(0, 0, 0, 0.24));
+
+  --openui-highlight-subtle: var(--dsw-alias-markdown-code-block, #f4f4f6);
+  --openui-highlight: var(--dsw-alias-interactive-bg-hover, rgba(0, 0, 0, 0.06));
+  --openui-highlight-strong: var(--dsw-alias-interactive-bg-hover, rgba(0, 0, 0, 0.06));
+  --openui-highlight-intense: var(--dsw-alias-interactive-bg-active, rgba(0, 0, 0, 0.1));
+
+  --openui-chat-user-response-bg: var(--dsw-alias-interactive-bg-hover, rgba(0, 0, 0, 0.06));
+  --openui-chat-user-response-text: var(--dsw-alias-label-primary, #1b1b1f);
+
+  /* Text. */
+  --openui-text-neutral-primary: var(--dsw-alias-label-primary, #1b1b1f);
+  --openui-text-neutral-secondary: var(--dsw-alias-label-secondary, #4b4b55);
+  --openui-text-neutral-tertiary: var(--dsw-alias-label-tertiary, #6b6b74);
+  --openui-text-neutral-link: var(--dsw-alias-link, #4d6bfe);
+  --openui-text-brand: var(--dsw-alias-link, #4d6bfe);
+
+  /* Text on a filled (brand) surface. */
+  --openui-text-accent-primary: var(--dsw-alias-label-primary-foreground, #ffffff);
+  --openui-text-accent-secondary: var(--dsw-alias-label-primary-foreground, #ffffff);
+  --openui-text-accent-tertiary: color-mix(
+    in srgb,
+    var(--dsw-alias-label-primary-foreground, #ffffff) 70%,
+    transparent
+  );
+  --openui-text-success-inverted: var(--dsw-alias-label-primary-foreground, #ffffff);
+  --openui-text-alert-inverted: var(--dsw-alias-label-primary-foreground, #ffffff);
+  --openui-text-info-inverted: var(--dsw-alias-label-primary-foreground, #ffffff);
+  --openui-text-purple-inverted: var(--dsw-alias-label-primary-foreground, #ffffff);
+  --openui-text-pink-inverted: var(--dsw-alias-label-primary-foreground, #ffffff);
+  --openui-text-danger-inverted-primary: var(--dsw-alias-label-primary-foreground, #ffffff);
+  --openui-text-danger-inverted-secondary: color-mix(
+    in srgb,
+    var(--dsw-alias-label-primary-foreground, #ffffff) 70%,
+    transparent
+  );
+  --openui-text-danger-inverted-tertiary: color-mix(
+    in srgb,
+    var(--dsw-alias-label-primary-foreground, #ffffff) 50%,
+    transparent
+  );
+
+  /* State text. OpenUI's extra hues collapse onto the three the harness has. */
+  --openui-text-success-primary: var(--dsw-alias-state-success-primary, #14914e);
+  --openui-text-alert-primary: var(--dsw-alias-state-warn-label, #9a6b00);
+  --openui-text-danger-primary: var(--dsw-alias-state-error-primary, #d92d20);
+  --openui-text-danger-secondary: var(--dsw-alias-state-error-secondary, #e5635a);
+  --openui-text-danger-tertiary: var(--dsw-alias-state-error-secondary, #e5635a);
+  --openui-text-info-primary: var(--dsw-alias-state-business-primary, #4d6bfe);
+  --openui-text-purple-primary: var(--dsw-alias-state-business-primary, #4d6bfe);
+  --openui-text-pink-primary: var(--dsw-alias-state-business-primary, #4d6bfe);
+
+  /* State surfaces. */
+  --openui-info-background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-business-primary, #4d6bfe) 10%,
+    transparent
+  );
+  --openui-success-background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-success-primary, #14914e) 10%,
+    transparent
+  );
+  --openui-alert-background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-warn-primary, #b57500) 12%,
+    transparent
+  );
+  --openui-danger-background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-error-primary, #d92d20) 10%,
+    transparent
+  );
+  --openui-purple-background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-business-primary, #4d6bfe) 10%,
+    transparent
+  );
+  --openui-pink-background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-business-primary, #4d6bfe) 10%,
+    transparent
+  );
+
+  /* Strokes. */
+  --openui-border-default: var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.1));
+  --openui-border-interactive: var(--dsw-alias-border-l3, rgba(0, 0, 0, 0.12));
+  --openui-border-interactive-emphasis: var(--dsw-alias-brand-primary, #1b1b1f);
+  --openui-border-interactive-selected: var(--dsw-alias-brand-primary, #1b1b1f);
+  --openui-border-accent: color-mix(
+    in srgb,
+    var(--dsw-alias-brand-primary, #1b1b1f) 25%,
+    transparent
+  );
+  --openui-border-accent-emphasis: var(--dsw-alias-brand-primary, #1b1b1f);
+  --openui-border-info: color-mix(
+    in srgb,
+    var(--dsw-alias-state-business-primary, #4d6bfe) 30%,
+    transparent
+  );
+  --openui-border-info-emphasis: var(--dsw-alias-state-business-primary, #4d6bfe);
+  --openui-border-success: color-mix(
+    in srgb,
+    var(--dsw-alias-state-success-primary, #14914e) 30%,
+    transparent
+  );
+  --openui-border-success-emphasis: var(--dsw-alias-state-success-primary, #14914e);
+  --openui-border-alert: color-mix(
+    in srgb,
+    var(--dsw-alias-state-warn-primary, #b57500) 30%,
+    transparent
+  );
+  --openui-border-alert-emphasis: var(--dsw-alias-state-warn-primary, #b57500);
+  --openui-border-danger: color-mix(
+    in srgb,
+    var(--dsw-alias-state-error-primary, #d92d20) 30%,
+    transparent
+  );
+  --openui-border-danger-emphasis: var(--dsw-alias-state-error-primary, #d92d20);
+
+  /* Interaction fills. */
+  --openui-interactive-accent-default: var(--dsw-alias-button-primary-fill, #1b1b1f);
+  --openui-interactive-accent-hover: var(--dsw-alias-button-primary-hover, #33333a);
+  --openui-interactive-accent-pressed: var(--dsw-alias-button-primary-hover, #33333a);
+  --openui-interactive-accent-disabled: var(--dsw-alias-button-primary-dimmed, rgba(0, 0, 0, 0.35));
+  --openui-interactive-destructive-default: color-mix(
+    in srgb,
+    var(--dsw-alias-state-error-primary, #d92d20) 8%,
+    transparent
+  );
+  --openui-interactive-destructive-hover: color-mix(
+    in srgb,
+    var(--dsw-alias-state-error-primary, #d92d20) 14%,
+    transparent
+  );
+  --openui-interactive-destructive-pressed: color-mix(
+    in srgb,
+    var(--dsw-alias-state-error-primary, #d92d20) 20%,
+    transparent
+  );
+  --openui-interactive-destructive-disabled: color-mix(
+    in srgb,
+    var(--dsw-alias-state-error-primary, #d92d20) 5%,
+    transparent
+  );
+  --openui-interactive-destructive-accent-default: var(--dsw-alias-state-error-primary, #d92d20);
+  --openui-interactive-destructive-accent-hover: var(--dsw-alias-state-error-primary, #d92d20);
+  --openui-interactive-destructive-accent-pressed: var(--dsw-alias-state-error-secondary, #e5635a);
+  --openui-interactive-destructive-accent-disabled: color-mix(
+    in srgb,
+    var(--dsw-alias-state-error-primary, #d92d20) 40%,
+    transparent
+  );
+
+  /* Geometry: OpenUI's 16-step radius ladder collapsed onto the harness scale. */
+  --openui-radius-3xs: var(--dsw-radius-xs, 4px);
+  --openui-radius-2xs: var(--dsw-radius-xs, 4px);
+  --openui-radius-xs: var(--dsw-radius-xs, 4px);
+  --openui-radius-s: var(--dsw-radius-sm, 8px);
+  --openui-radius-m: var(--dsw-radius-sm, 8px);
+  --openui-radius-l: var(--dsw-radius-md, 12px);
+  --openui-radius-xl: var(--dsw-radius-md, 12px);
+  --openui-radius-2xl: var(--dsw-radius-lg, 16px);
+  --openui-radius-3xl: var(--dsw-radius-lg, 16px);
+  --openui-radius-4xl: var(--dsw-radius-xl, 20px);
+  --openui-radius-5xl: var(--dsw-radius-xl, 20px);
+  --openui-radius-6xl: var(--dsw-radius-panel, 28px);
+  --openui-radius-7xl: var(--dsw-radius-panel, 28px);
+  --openui-radius-8xl: var(--dsw-radius-panel, 28px);
+  --openui-radius-9xl: var(--dsw-radius-panel, 28px);
+  --openui-radius-full: 9999px;
+
+  --openui-shadow-s: var(--dsw-elevation-soft, 0 1px 3px rgba(0, 0, 0, 0.08));
+  --openui-shadow-m: var(--dsw-elevation-prominent, 0 3px 8px rgba(0, 0, 0, 0.06));
+  --openui-shadow-l: var(--dsw-elevation-prominent, 0 3px 8px rgba(0, 0, 0, 0.06));
+  --openui-shadow-xl: var(--dsw-elevation-panel, 0 8px 24px rgba(0, 0, 0, 0.1));
+  --openui-shadow-2xl: var(--dsw-elevation-panel, 0 8px 24px rgba(0, 0, 0, 0.1));
+  --openui-shadow-3xl: var(--dsw-elevation-panel, 0 8px 24px rgba(0, 0, 0, 0.1));
+
+  /* Type: the thread's own scale, so a program's text sits in the same rhythm as prose and
+     honours the reader's font-size setting. */
+  --openui-font-body: var(--dsw-font-family, system-ui, sans-serif);
+  --openui-font-heading: var(--dsw-font-family, system-ui, sans-serif);
+  --openui-font-label: var(--dsw-font-family, system-ui, sans-serif);
+  --openui-font-numbers: var(--dsw-font-family, system-ui, sans-serif);
+  --openui-font-code: var(--ds-font-family-code, ui-monospace, SFMono-Regular, Menlo, monospace);
+  --openui-font-weight-medium: 500;
+  --openui-font-variation-regular: normal;
+  --openui-font-variation-medium: normal;
+  --openui-text-body-default: var(--dsw-font-markdown-base, 400 14px/24px system-ui, sans-serif);
+  --openui-text-body-default-heavy: var(--dsw-font-markdown-base-strong, 600 14px/24px system-ui, sans-serif);
+  --openui-text-body-sm: var(--dsw-font-markdown-small, 400 12px/20px system-ui, sans-serif);
+  --openui-text-body-sm-heavy: var(--dsw-font-markdown-small-strong, 600 12px/20px system-ui, sans-serif);
+  --openui-text-body-xs: var(--dsw-font-markdown-small, 400 12px/20px system-ui, sans-serif);
+  --openui-text-body-xs-heavy: var(--dsw-font-markdown-small-strong, 600 12px/20px system-ui, sans-serif);
+  --openui-text-body-lg: var(--dsw-font-markdown-base, 400 14px/24px system-ui, sans-serif);
+  --openui-text-body-lg-heavy: var(--dsw-font-markdown-base-strong, 600 14px/24px system-ui, sans-serif);
+  --openui-text-heading-xs: var(--dsw-font-markdown-h4, 600 14px/24px system-ui, sans-serif);
+  --openui-text-heading-sm: var(--dsw-font-markdown-h3, 700 18px/26px system-ui, sans-serif);
+  --openui-text-heading-md: var(--dsw-font-markdown-h2, 700 19px/28px system-ui, sans-serif);
+  --openui-text-heading-lg: var(--dsw-font-markdown-h1, 700 21px/30px system-ui, sans-serif);
+  --openui-text-heading-xl: var(--dsw-font-markdown-h1, 700 21px/30px system-ui, sans-serif);
+  --openui-text-label-default: var(--dsw-font-s-14, 400 14px/22px system-ui, sans-serif);
+  --openui-text-label-default-heavy: var(--dsw-font-s-strong-14, 600 14px/22px system-ui, sans-serif);
+  --openui-text-label-sm: var(--dsw-font-xxs-12, 400 12px/18px system-ui, sans-serif);
+  --openui-text-label-sm-heavy: var(--dsw-font-xxs-strong-12, 600 12px/18px system-ui, sans-serif);
+  --openui-text-label-xs: var(--dsw-font-xxxs-11, 400 11px/16px system-ui, sans-serif);
+  --openui-text-label-xs-heavy: var(--dsw-font-xxxs-strong-11, 600 11px/16px system-ui, sans-serif);
+  --openui-text-label-lg: var(--dsw-font-s-14, 400 14px/22px system-ui, sans-serif);
+  --openui-text-label-lg-heavy: var(--dsw-font-s-strong-14, 600 14px/22px system-ui, sans-serif);
+  --openui-text-numbers-default: var(--dsw-font-markdown-base, 400 14px/24px system-ui, sans-serif);
+  --openui-text-numbers-default-heavy: var(--dsw-font-markdown-base-strong, 600 14px/24px system-ui, sans-serif);
+  --openui-text-numbers-sm: var(--dsw-font-markdown-small, 400 12px/20px system-ui, sans-serif);
+  --openui-text-numbers-sm-heavy: var(--dsw-font-markdown-small-strong, 600 12px/20px system-ui, sans-serif);
+  --openui-text-numbers-xs: var(--dsw-font-markdown-small, 400 12px/20px system-ui, sans-serif);
+  --openui-text-numbers-xs-heavy: var(--dsw-font-markdown-small-strong, 600 12px/20px system-ui, sans-serif);
+  --openui-text-numbers-lg: var(--dsw-font-markdown-base, 400 14px/24px system-ui, sans-serif);
+  --openui-text-numbers-lg-heavy: var(--dsw-font-markdown-base-strong, 600 14px/24px system-ui, sans-serif);
+  --openui-text-numbers-heading-sm: var(--dsw-font-markdown-h3, 700 18px/26px system-ui, sans-serif);
+  --openui-text-numbers-heading-md: var(--dsw-font-markdown-h2, 700 19px/28px system-ui, sans-serif);
+  --openui-text-numbers-heading-lg: var(--dsw-font-markdown-h1, 700 21px/30px system-ui, sans-serif);
+  --openui-text-numbers-heading-xl: var(--dsw-font-markdown-h1, 700 21px/30px system-ui, sans-serif);
+  --openui-text-code-default: var(--dsw-font-markdown-code, 400 12px/19px monospace);
+  --openui-text-code-default-heavy: var(--dsw-font-markdown-code, 700 12px/19px monospace);
+  --openui-text-code-sm: var(--dsw-font-markdown-code-block, 400 11px/19px monospace);
+  --openui-text-code-sm-heavy: var(--dsw-font-markdown-code-block, 700 11px/19px monospace);
+}
+
+/* ---------- the plugin's own roles ---------- */
+
 .genui-root,
 [data-genui-overlay] {
-  --md-primary: #d0bcff;
-  --md-on-primary: #381e72;
-  --md-error: #f2b8b5;
-  --md-surface-container: #211f26;
-  --md-on-surface: #e6e0e9;
-  --md-on-surface-variant: #cac4d0;
-  --md-outline: #938f99;
-  --md-hover: 0.08;
-  --md-ease: cubic-bezier(0.2, 0, 0, 1);
-  --md-ease-expressive: cubic-bezier(0.34, 0.8, 0.34, 1);
-  --md-fast: 160ms;
-  --md-shape-xl: 24px;
-  --md-shape-full: 9999px;
-  --md-label-large: 500 14px/1.43 system-ui, sans-serif;
-  --md-label-medium: 500 12px/1.33 system-ui, sans-serif;
+  --genui-fg: var(--dsw-alias-label-primary, #1b1b1f);
+  --genui-fg-caption: var(--dsw-alias-label-secondary, #4b4b55);
+  --genui-fg-dim: var(--dsw-alias-label-tertiary, #6b6b74);
+  --genui-surface: var(--dsw-alias-bg-layer-2, #f7f7f8);
+  --genui-surface-sunken: var(--dsw-alias-bg-skeleton, rgba(0, 0, 0, 0.04));
+  --genui-border: var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.1));
+  --genui-border-strong: var(--dsw-alias-border-l3, rgba(0, 0, 0, 0.12));
+  --genui-hover: var(--dsw-alias-interactive-bg-hover, rgba(0, 0, 0, 0.06));
+  --genui-danger: var(--dsw-alias-state-error-primary, #d92d20);
+  --genui-radius: var(--dsw-radius-lg, 16px);
+  --genui-radius-control: var(--dsw-radius-sm, 8px);
+  --genui-ease: cubic-bezier(0.2, 0, 0, 1);
+  --genui-fast: 160ms;
+  --genui-label: 500 12px/18px var(--dsw-font-family, system-ui, sans-serif);
 }
 
 /* ---------- assistant row ---------- */
@@ -42,7 +293,7 @@
 .genui-root {
   width: 100%;
   min-width: 0;
-  color: var(--dsw-alias-label-primary, #e6e6e9);
+  color: var(--genui-fg);
 }
 
 .genui-root * {
@@ -81,10 +332,10 @@
 .genui-error {
   margin-top: 8px;
   padding: 8px 10px;
-  border: 1px solid var(--dsw-alias-state-error-primary, #f2b8b5);
-  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--genui-danger) 40%, transparent);
+  border-radius: var(--genui-radius-control);
   font-size: 13px;
-  color: var(--dsw-alias-state-error-primary, #f2b8b5);
+  color: var(--genui-danger);
 }
 
 .genui-error p {
@@ -92,14 +343,18 @@
   white-space: pre-wrap;
 }
 
-/* Placeholder while the model is still writing the program, and the renderer's own
-   query loader (an image query paints its own shimmer instead). */
 /* The renderer's own query loader: a sweeping bar, shown only inside a program while one of
    its queries is in flight. */
 .genui-loading {
   height: 28px;
-  border-radius: 6px;
-  background: linear-gradient(90deg, #222 25%, #2c2c2c 37%, #222 63%);
+  border-radius: var(--genui-radius-control);
+  background-color: var(--genui-surface-sunken);
+  background-image: linear-gradient(
+    90deg,
+    transparent 25%,
+    var(--genui-hover) 50%,
+    transparent 75%
+  );
   background-size: 400% 100%;
   animation: genui-pulse 1.4s ease infinite;
 }
@@ -123,7 +378,14 @@
 }
 
 /* ---------- generated image ---------- */
-/* Ported from genui-harness's app stylesheet: only the generated-image block, scoped. */
+/* Adapted from the desktop app this bundle grew out of, re-tokenised onto the
+   harness palette. */
+
+.genui-root .genimg {
+  margin: 0;
+  display: grid;
+  gap: 6px;
+}
 
 .genui-root .genimg-frame {
   position: relative;
@@ -133,10 +395,13 @@
 .genui-root .genimg-frame img {
   display: block;
   width: 100%;
-  border-radius: var(--md-shape-xl);
+  border-radius: var(--genui-radius);
+  border: 1px solid var(--genui-border);
   cursor: zoom-in;
 }
 
+/* The two actions ride on top of a photograph, so they keep their own scrim instead of
+   borrowing a label token: the backdrop is the picture, not the theme. */
 .genui-root .genimg-actions {
   position: absolute;
   top: 12px;
@@ -144,7 +409,7 @@
   display: flex;
   gap: 8px;
   opacity: 0;
-  transition: opacity var(--md-fast) var(--md-ease);
+  transition: opacity var(--genui-fast) var(--genui-ease);
 }
 
 .genui-root .genimg-frame:hover .genimg-actions,
@@ -155,22 +420,27 @@
 .genui-root .genimg-actions button {
   display: grid;
   place-items: center;
-  width: 40px;
-  height: 40px;
+  width: 32px;
+  height: 32px;
   padding: 0;
   border: 0;
-  border-radius: var(--md-shape-full);
-  background: rgba(54, 52, 59, 0.9);
-  color: var(--md-on-surface);
-  font-size: 16px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 15px;
   line-height: 1;
   cursor: pointer;
-  transition: background var(--md-fast) var(--md-ease);
+  backdrop-filter: blur(6px);
+  transition: background var(--genui-fast) var(--genui-ease);
 }
 
 .genui-root .genimg-actions button:hover {
-  background: var(--md-primary);
-  color: var(--md-on-primary);
+  background: rgba(0, 0, 0, 0.72);
+}
+
+.genui-root .genimg-actions button:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
 }
 
 .genui-root .genimg figcaption {
@@ -178,30 +448,14 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 0 4px;
-  font: var(--md-label-medium);
-  color: var(--md-on-surface-variant);
-}
-
-.genui-root .genimg figcaption button {
-  min-height: 32px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: var(--md-shape-full);
-  background: transparent;
-  color: var(--md-primary);
-  font: var(--md-label-medium);
-  cursor: pointer;
-  transition: background var(--md-fast) var(--md-ease);
-}
-
-.genui-root .genimg figcaption button:hover {
-  background: rgba(208, 188, 255, var(--md-hover));
+  padding: 0 2px;
+  font: var(--genui-label);
+  color: var(--genui-fg-dim);
 }
 
 .genui-root .genimg-note {
   flex: 0 0 auto;
-  color: var(--md-primary);
+  color: var(--genui-fg-caption);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -213,10 +467,11 @@
   display: grid;
   place-items: center;
   overflow: hidden;
-  border-radius: var(--md-shape-xl);
-  background: var(--md-surface-container);
-  color: var(--md-on-surface-variant);
-  font: var(--md-label-large);
+  border: 1px solid var(--genui-border);
+  border-radius: var(--genui-radius);
+  background: var(--genui-surface-sunken);
+  color: var(--genui-fg-dim);
+  font: var(--genui-label);
 }
 
 .genui-root .genimg-loading::after {
@@ -226,13 +481,13 @@
   background: linear-gradient(
     100deg,
     transparent 25%,
-    rgba(208, 188, 255, 0.08) 45%,
-    rgba(208, 188, 255, 0.16) 50%,
-    rgba(208, 188, 255, 0.08) 55%,
+    var(--genui-hover) 45%,
+    color-mix(in srgb, var(--genui-hover) 60%, var(--genui-fg) 40%) 50%,
+    var(--genui-hover) 55%,
     transparent 75%
   );
   transform: translateX(-100%);
-  animation: genui-shimmer 1.8s infinite var(--md-ease-expressive);
+  animation: genui-shimmer 1.8s infinite var(--genui-ease);
 }
 
 @keyframes genui-shimmer {
@@ -242,7 +497,7 @@
 }
 
 .genui-root .genimg-loading.is-failed {
-  color: var(--md-error);
+  color: var(--genui-danger);
 }
 
 .genui-root .genimg-loading.is-failed::after {
@@ -252,10 +507,11 @@
 
 .genui-root .genimg-loading.is-missing {
   grid-auto-rows: min-content;
+  gap: 8px;
   padding: 12px;
   text-align: center;
-  color: var(--md-on-surface-variant);
-  font: var(--md-label-medium);
+  color: var(--genui-fg-dim);
+  font: var(--genui-label);
 }
 
 .genui-root .genimg-loading.is-missing::after {
@@ -263,31 +519,18 @@
   opacity: 0;
 }
 
-.genui-root .genimg-loading.is-missing button {
-  min-height: 32px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: var(--md-shape-full);
-  background: transparent;
-  color: var(--md-primary);
-  font: var(--md-label-medium);
-  cursor: pointer;
-  transition: background var(--md-fast) var(--md-ease);
-}
-
-.genui-root .genimg-loading.is-missing button:hover {
-  background: rgba(208, 188, 255, var(--md-hover));
-}
+/* ---------- fullscreen viewer ---------- */
 
 [data-genui-overlay] {
   position: fixed;
   inset: 0;
-  z-index: 200;
+  z-index: 1000;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 72px 24px 24px;
-  background-color: rgba(0, 0, 0, 0.92);
+  background: var(--dsw-alias-bg-mask-1, rgba(0, 0, 0, 0.6));
+  backdrop-filter: blur(12px);
   cursor: zoom-out;
 }
 
@@ -295,10 +538,9 @@
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
-  border-radius: var(--md-shape-xl);
+  border-radius: var(--genui-radius);
   cursor: default;
-  box-shadow: var(--openui-shadow-3xl);
-  opacity: 1;
+  box-shadow: var(--dsw-elevation-panel, 0 8px 24px rgba(0, 0, 0, 0.2));
 }
 
 [data-genui-overlay] .genimg-overlay-bar {
@@ -310,7 +552,8 @@
   align-items: center;
   gap: 12px;
   padding: 12px 20px;
-  background: var(--md-surface-container);
+  background: var(--genui-surface);
+  border-bottom: 1px solid var(--genui-border);
   cursor: default;
 }
 
@@ -320,28 +563,35 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--md-on-surface-variant);
-  font: var(--md-label-large);
+  color: var(--genui-fg-caption);
+  font: var(--genui-label);
 }
 
+/* The harness outline button, hand-rolled: this layer is plain DOM outside React. */
 [data-genui-overlay] .genimg-overlay-bar button {
   flex: 0 0 auto;
-  min-height: 40px;
-  padding: 0 20px;
-  border: 1px solid var(--md-outline);
-  border-radius: var(--md-shape-full);
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--genui-border-strong);
+  border-radius: var(--genui-radius-control);
   background: transparent;
-  color: var(--md-primary);
-  font: var(--md-label-large);
+  color: var(--genui-fg);
+  font: var(--genui-label);
   cursor: pointer;
-  transition: background var(--md-fast) var(--md-ease);
+  transition: background var(--genui-fast) var(--genui-ease);
 }
 
 [data-genui-overlay] .genimg-overlay-bar button:hover {
-  background: rgba(208, 188, 255, var(--md-hover));
+  background: var(--genui-hover);
 }
 
-/* genui's global reduced-motion rule, scoped to the same two roots. */
+[data-genui-overlay] .genimg-overlay-bar button:focus-visible {
+  outline: var(--dsw-focus-ring-width, 2px) solid
+    var(--dsw-focus-ring-color, var(--dsw-alias-brand-primary, #1b1b1f));
+  outline-offset: 2px;
+}
+
+/* Reduced-motion rule, scoped to the same two roots. */
 @media (prefers-reduced-motion: reduce) {
   .genui-root *,
   .genui-root *::before,

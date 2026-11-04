@@ -15,7 +15,7 @@ describe('comfy client', () => {
     const id = await comfy.queue({ '3': { inputs: {} } })
     expect(id).toBe('p1')
     const images = await comfy.wait(id, 1000, 10)
-    expect(images).toEqual([{ filename: 'harness_real_1.png', subfolder: '', type: 'output' }])
+    expect(images).toEqual([{ filename: 'genui_real_1.png', subfolder: '', type: 'output' }])
   })
 
   test('surfaces node errors', async () => {

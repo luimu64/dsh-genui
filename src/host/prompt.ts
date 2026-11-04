@@ -12,11 +12,11 @@
  *   actually built, and `/openui on` works immediately in any conversation.
  *
  * The listener is PREPENDED, which in a Cordis waterfall means its post-`next()` code runs
- * last. That matters in this deployment: `dsh-liberation` prepends a listener that replaces
- * `assembly.sections` with its own persona and keeps only contexts, tools and variables. A
- * plain listener adds the section before that rewrite and loses it; a prepended one appends
- * after the rewrite and survives. Without liberation in the profile the result is identical —
- * the section is simply appended to the ordinary assembly.
+ * last. That matters beside any bundle that owns the whole prompt: such a bundle prepends a
+ * listener that replaces `assembly.sections` with its own persona and keeps only contexts,
+ * tools and variables. A plain listener adds the section before that rewrite and loses it; a
+ * prepended one appends after the rewrite and survives. With no such bundle in the profile
+ * the result is identical - the section is simply appended to the ordinary assembly.
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'

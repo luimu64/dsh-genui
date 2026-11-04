@@ -7,6 +7,7 @@ import {
   observeStep,
   reasoningText,
   resetLiveSteps,
+  isTailStep,
   rowMode,
   stepKey,
   type AssistantRowData,
@@ -102,6 +103,34 @@ describe('live tracking', () => {
   test('one step streaming does not make another live', () => {
     observeStep('1:0', 'running')
     expect(observeStep('1:1', 'settled')).toBe(false)
+  })
+})
+
+describe('isTailStep', () => {
+  const fakeRows = (keys: string[]) => {
+    ;(globalThis as any).document = {
+      querySelectorAll: () =>
+        keys.map((key) => ({
+          getAttribute: (name: string) => (name === 'data-genui-step' ? key : null),
+        })),
+    }
+  }
+
+  test('the last answer in the conversation is the tail', () => {
+    fakeRows(['1:0', '2:0', '3:0'])
+    expect(isTailStep('3:0')).toBe(true)
+  })
+
+  test('an earlier answer is not, even when its picture is gone', () => {
+    fakeRows(['1:0', '2:0', '3:0'])
+    expect(isTailStep('2:0')).toBe(false)
+  })
+
+  test('no rows mounted is not the tail', () => {
+    fakeRows([])
+    expect(isTailStep('1:0')).toBe(false)
+    delete (globalThis as any).document
+    expect(isTailStep('1:0')).toBe(false)
   })
 })
 

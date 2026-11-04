@@ -1,6 +1,8 @@
 import { useCallback, useState } from "react";
 import { defineComponent } from "@openuidev/react-lang";
 import { openuiLibrary } from "@openuidev/react-ui";
+import { Button } from "@deepseek-ai/dsh-client-ui-primitives";
+import { LANE_IDS, PRESET_IDS, QUALITY_IDS } from "../shared/models";
 import { imageUrls } from "./images";
 import { ImagePlaceholder } from "./pending";
 import { useReplay } from "./replay";
@@ -172,17 +174,17 @@ function GenFigure({
         src={src}
         alt={caption}
         onClick={() => viewFullSize(src, caption)}
-        data-tip="Click to view full size"
+        title="Click to view full size"
       />
       <div className="genimg-actions">
         <button
           onClick={() => viewFullSize(src, caption, { label: "Download", run: () => void save() })}
-          data-tip="View full size"
+          title="View full size"
           aria-label="View full size"
         >
           ⤢
         </button>
-        <button onClick={() => void save()} data-tip="Download PNG" aria-label="Download PNG">
+        <button onClick={() => void save()} title="Download PNG" aria-label="Download PNG">
           ↓
         </button>
       </div>
@@ -192,7 +194,7 @@ function GenFigure({
   if (!showCaption) return frame;
 
   return (
-    <figure className="genimg" style={{ margin: 0, display: "grid", gap: 6 }}>
+    <figure className="genimg">
       {frame}
       <figcaption>
         <span>{caption}</span>
@@ -226,9 +228,9 @@ function MissingFrame({
       aria-label={label ?? "image not available"}
     >
       <span>{label ?? "this picture is not saved on this machine"}</span>
-      <button type="button" onClick={onRetry}>
+      <Button type="button" variant="outline" size="sm" onClick={onRetry}>
         render it again
-      </button>
+      </Button>
     </div>
   );
 }
@@ -250,28 +252,23 @@ const GenImage = defineComponent({
       if (!allowGeneration) {
         return <MissingFrame height={320} onRetry={retry} />;
       }
-      return <ImagePlaceholder height={320}>rendering on mainframe…</ImagePlaceholder>;
+      return <ImagePlaceholder height={320}>rendering…</ImagePlaceholder>;
     }
 
     return <GenFigure src={props.url} caption={props.prompt} prompt={props.prompt} />;
   },
 });
 
-type SlotView = { url: string; error?: string; missing?: boolean };
-
 const GenImageSet = defineComponent({
   name: "GenImageSet",
   description:
     "Shows every image of a batched generate_image query as a grid. Pass query.images and query.prompt.",
   props: z.object({
-    // `generate_image` returns `images` as [{url, file}], but this used to
-    // declare a string array: the objects reached the renderer anyway and every
-    // card in a batch painted a broken-image box. Accept both shapes and
-    // normalise, so stored answers written either way keep working.
+    // `generate_image` returns `images` as [{url, file}]; older stored answers carry plain
+    // strings. Both shapes are accepted and normalised, so neither has to be rewritten.
     //
-    // A batch still in flight also carries `batch`/`index` on each slot: that is how a
-    // frame knows where to look for its own completion instead of waiting for the last
-    // one. The extra fields are schema-declared so the renderer does not strip them.
+    // A frame of a batch still in flight may also carry `batch`/`index`/`total`. The extra
+    // fields are schema-declared so the renderer does not strip them.
     urls: z.array(
       z.union([
         z.string(),
@@ -290,93 +287,64 @@ const GenImageSet = defineComponent({
   component: ({ props }) => {
     const [note, setNote] = useState("");
     const { allowGeneration, retry } = useReplay();
-    // One Comfy job per batch: every frame lands together, so there is no per-slot store
-    // to subscribe to. A stored answer carries its URLs; a stored answer whose files are
-    // gone carries none, and that is a hole rather than progress.
+    // One Comfy job per batch: every frame lands together, so a batch is either complete or
+    // has no URLs at all. A stored answer whose files are gone carries none, and that is a
+    // hole rather than progress.
     const urls = imageUrls(props.urls);
-    const slots: SlotView[] = urls.map((url) => ({ url }));
-    const done = slots.filter((slot) => slot.url);
-    const failed: SlotView[] = [];
-    const gone: SlotView[] = [];
 
     const save = useCallback(async () => {
       setNote("saving…");
       try {
-        for (let i = 0; i < done.length; i++) {
-          await download(done[i].url, downloadName(props.prompt, `-${i + 1}`));
+        for (let i = 0; i < urls.length; i++) {
+          await download(urls[i], downloadName(props.prompt, `-${i + 1}`));
         }
-        setNote(`saved ${done.length}`);
+        setNote(`saved ${urls.length}`);
       } catch (e) {
         setNote(String(e));
       }
-    }, [done, props.prompt]);
+    }, [urls, props.prompt]);
 
-    if (!slots.length) {
+    if (!urls.length) {
       // Nothing to paint and nothing coming: a stored answer whose set is gone is a hole,
       // not a shimmer that runs forever.
       if (!allowGeneration) {
         return <MissingFrame height={240} onRetry={retry} label="this set is not saved on this machine" />;
       }
-      return <ImagePlaceholder height={240}>rendering the set on mainframe…</ImagePlaceholder>;
+      return <ImagePlaceholder height={240}>rendering the set…</ImagePlaceholder>;
     }
 
     return (
-      <figure className="genimg" style={{ margin: 0, display: "grid", gap: 6 }}>
+      <figure className="genimg">
         <div
           style={{
             display: "grid",
             gap: 8,
             // Sized from the request, not from how many frames have landed, so the
             // placeholders do not reflow the page as each picture arrives.
-            gridTemplateColumns: `repeat(${slots.length > 1 ? 2 : 1}, minmax(0, 1fr))`,
+            gridTemplateColumns: `repeat(${urls.length > 1 ? 2 : 1}, minmax(0, 1fr))`,
           }}
         >
-          {slots.map((slot, i) =>
-            slot.url ? (
-              // Each finished frame is complete on its own: full-size view and download
-              // work while the rest of the set is still rendering.
-              <GenFigure
-                key={i}
-                src={slot.url}
-                caption={`${props.prompt} (${i + 1})`}
-                prompt={`${props.prompt} (${i + 1})`}
-                showCaption={false}
-              />
-            ) : slot.missing ? (
-              <MissingFrame
-                key={i}
-                height={240}
-                onRetry={retry}
-                label={`image ${i + 1} is not saved on this machine`}
-              />
-            ) : slot.error ? (
-              <div
-                key={i}
-                className="genimg-loading is-failed"
-                style={{ height: 240 }}
-                role="status"
-                data-tip={slot.error}
-                aria-label={`image ${i + 1} failed`}
-              >
-                could not render this picture
-              </div>
-            ) : (
-              <ImagePlaceholder key={i} height={240}>
-                rendering on mainframe…
-              </ImagePlaceholder>
-            ),
-          )}
+          {urls.map((url, i) => (
+            // Each finished frame is complete on its own: full-size view and download work
+            // while the rest of the set is still rendering.
+            <GenFigure
+              key={i}
+              src={url}
+              caption={`${props.prompt} (${i + 1})`}
+              prompt={`${props.prompt} (${i + 1})`}
+              showCaption={false}
+            />
+          ))}
         </div>
         <figcaption>
           <span>
             {props.prompt}
-            {props.quality ? ` · ${props.quality}` : ""} · {done.length} of {slots.length} images
-            {failed.length ? ` · ${failed.length} failed` : ""}
-            {gone.length ? ` · ${gone.length} not saved here` : ""}
+            {props.quality ? ` · ${props.quality}` : ""} · {urls.length}{" "}
+            {urls.length === 1 ? "image" : "images"}
           </span>
-          <button onClick={() => void save()} disabled={!done.length}>
+          <Button variant="ghost" size="sm" onClick={() => void save()} disabled={!urls.length}>
             download all
-          </button>
+          </Button>
           {note ? <span className="genimg-note">{note}</span> : null}
         </figcaption>
       </figure>
@@ -398,7 +366,7 @@ const ImageBlockCard = defineComponent({
   props: z.object({ src: z.string(), alt: z.string().optional() }),
   component: ({ props }) => {
     if (!props.src) {
-      return <ImagePlaceholder height={320}>rendering on mainframe…</ImagePlaceholder>;
+      return <ImagePlaceholder height={320}>rendering…</ImagePlaceholder>;
     }
     const caption = props.alt ?? "Generated image";
     return <GenFigure src={props.src} caption={caption} prompt={caption} />;
@@ -430,7 +398,7 @@ const ImageGalleryCards = defineComponent({
   component: ({ props }) => {
     const list = props.images.filter((img) => img.src);
     if (!list.length) {
-      return <ImagePlaceholder height={240}>rendering on mainframe…</ImagePlaceholder>;
+      return <ImagePlaceholder height={240}>rendering…</ImagePlaceholder>;
     }
     return (
       <div
@@ -449,7 +417,7 @@ const ImageGalleryCards = defineComponent({
   },
 });
 
-export const harnessLibrary = openuiLibrary.extend!({
+export const genuiLibrary = openuiLibrary.extend!({
   components: {
     add: [
       { component: GenImage, slots: ["Card.children"] },
@@ -460,16 +428,20 @@ export const harnessLibrary = openuiLibrary.extend!({
 });
 
 /**
- * The one side effect the model may request. Declaring it here is what teaches the
- * generated prompt the `Query("generate_image", ...)` syntax - without it the model
- * invents a `generate_image(...)` function call that never reaches Rust.
+ * The two side effects the model may request. Declaring them here is what teaches the
+ * generated prompt the `Query("generate_image", ...)` syntax - without it the model invents
+ * a `generate_image(...)` function call that never reaches the host.
+ *
+ * The enum ids come from `src/shared/models.ts`, the same roster the host validates
+ * against, so the two cannot drift. Rewrite the *descriptions* when you ship different
+ * graphs (see docs/graphs.md); the ids only change in the roster.
  */
-export const harnessPromptOptions = {
+export const genuiPromptOptions = {
   tools: [
     {
       name: "generate_image",
       description:
-        "Render images with the local ComfyUI. Use only when the user asks to see, draw, sketch, render or imagine a picture, never to decorate text. Emit at most one per program. Anime/manga/cartoon/illustration -> lane \"anime\" with booru-style tags. Photographs, products, real places, realistic people -> lane \"real\" with one natural-language sentence describing camera, light and lens. quality: \"fast\" (default) is a distilled model tuned for seconds per frame - use it for exploration, chat, and anything the user did not ask to be good. quality: \"high\" swaps in the full checkpoint at its recommended settings (Anima 30 steps CFG 5, MOSS-Image bf16 50 steps CFG 3 at 992x1504) and takes one to four minutes per image plus a cold model load - use it when the user says high quality, best, final, print, or asks for one image they care about. count renders 1-8 variations in one batch for the same cost as one model load; use 2-4 for \"options\"/\"variations\"/\"some\", never more than 4 unless asked.",
+        "Render images with the local ComfyUI. Use only when the user asks to see, draw, sketch, render or imagine a picture, never to decorate text. Emit at most one per program. Anime/manga/cartoon/illustration -> lane \"anime\" with booru-style tags. Photographs, products, real places, realistic people -> lane \"real\" with one natural-language sentence describing camera, light and lens. quality: \"fast\" (default) is a distilled model tuned for seconds per frame - use it for exploration, chat, and anything the user did not ask to be good. quality: \"high\" swaps in the undistilled checkpoint at its published settings (the anime lane runs 30 steps at CFG 5; the real lane 50 steps at CFG 3 and 992x1504) and takes one to four minutes per image plus a cold model load - use it when the user says high quality, best, final, print, or asks for one image they care about. preset swaps the anime checkpoint for a further full one at its own published settings (30 steps CFG 4.5, about 40 seconds); the ids are the extra graphs this deployment ships and are named in the schema. Pass a preset only on the anime lane, and only when the user wants a different anime look than the default pair; it replaces quality rather than combining with it. upscale adds a second sampler pass over a latent upscaled by that factor (true = 1.5, up to 2): roughly doubles the time and the file size for real extra detail - use it for wallpaper, print, or when the reader asks for sharper or bigger. count renders 1-8 variations in one batch for the same cost as one model load; use 2-4 for \"options\"/\"variations\"/\"some\", never more than 4 unless asked.",
       inputSchema: {
         type: "object",
         properties: {
@@ -480,14 +452,25 @@ export const harnessPromptOptions = {
           },
           lane: {
             type: "string",
-            enum: ["anime", "real"],
-            description: "Which model to drive. Defaults to real.",
+            enum: [...LANE_IDS],
+            description: "Which model family to drive. Defaults to real.",
           },
           quality: {
             type: "string",
-            enum: ["fast", "high"],
+            enum: [...QUALITY_IDS],
             description:
-              "fast = distilled turbo lanes, seconds per image (default). high = full checkpoints at published settings, minutes per image.",
+              "fast = distilled lanes, seconds per image (default). high = undistilled checkpoints at published settings, minutes per image.",
+          },
+          preset: {
+            type: "string",
+            enum: [...PRESET_IDS],
+            description:
+              "Swap the anime checkpoint for a further full one at its own settings (30 steps CFG 4.5). The ids are deployment-defined: the two shipped here are full anime checkpoints with visibly different shading. Anime lane only, replaces quality.",
+          },
+          upscale: {
+            type: "number",
+            description:
+              "Hires factor, 1.05-2 (true means 1.5): a second sampler pass over an upscaled latent. Roughly doubles the time for real extra detail. Use for wallpaper, print, or 'sharper'/'bigger'.",
           },
           count: {
             type: "number",
@@ -497,7 +480,7 @@ export const harnessPromptOptions = {
           steps: {
             type: "number",
             description:
-              "Omit for the lane/quality default (anime 8 fast / 30 high, real 4 fast / 50 high). Only override to trade speed for detail on the fast lanes.",
+              "Omit for the lane/quality default (anime 8 fast / 30 high, real 4 fast / 50 high, any preset 30). Only override to trade speed for detail.",
           },
           nsfw: {
             type: "boolean",
@@ -512,15 +495,20 @@ export const harnessPromptOptions = {
       outputSchema: {
         type: "object",
         properties: {
-          url: { type: "string", description: "data: URL of the first image. Pass to GenImage." },
+          url: {
+            type: "string",
+            description: "URL of the first image, a /genui/images path. Pass to GenImage.",
+          },
           images: {
             type: "array",
             description: "Every image of the batch as {url, file}. Pass query.images to GenImageSet.",
           },
-          file: { type: "string", description: "Local path of the first image; pass to edit_image as source." },
+          file: { type: "string", description: "File name of the first image; pass to edit_image as source." },
           prompt: { type: "string" },
           lane: { type: "string" },
           quality: { type: "string" },
+          preset: { type: "string" },
+          upscale: { type: "number" },
           seed: { type: "number" },
           steps: { type: "number" },
         },
@@ -530,7 +518,7 @@ export const harnessPromptOptions = {
     {
       name: "edit_image",
       description:
-        "Change one thing in an image that already exists on disk: the last render, a render from earlier in the conversation, or a file the user names. Runs the klein image-editing model, which repaints the frame conditioned on the source, so everything you do not mention is meant to survive. Use it when the user says change, make it, remove, add, recolor, swap or 'same but' about a picture that already exists. One clear instruction per pass; chain passes for several changes. It cannot invent explicit content the source does not already contain - for a new explicit scene use generate_image instead.",
+        "Change one thing in an image that already exists on disk: the last render, a render from earlier in the conversation, or a file the user names. Runs a reference-conditioned editing model, which repaints the frame from the source, so everything you do not mention is meant to survive. Use it when the user says change, make it, remove, add, recolor, swap or 'same but' about a picture that already exists. One clear instruction per pass; chain passes for several changes. It cannot invent explicit content the source does not already contain - for a new explicit scene use generate_image instead.",
       inputSchema: {
         type: "object",
         properties: {
@@ -542,7 +530,7 @@ export const harnessPromptOptions = {
           source: {
             type: "string",
             description:
-              "Path or filename of the image to edit. Omit to edit the newest render in the harness images directory. Use one of the file paths the system prompt lists under 'Renders in this conversation' - that list holds every image of the conversation, newest first.",
+              "File name of the image to edit. Omit to edit the newest render in the image directory. Use one of the file names the system prompt lists under 'Renders in this conversation' - that list holds every image of the conversation, newest first.",
           },
         },
         required: ["prompt"],
@@ -550,7 +538,7 @@ export const harnessPromptOptions = {
       outputSchema: {
         type: "object",
         properties: {
-          url: { type: "string", description: "data: URL of the edited image. Pass to GenImage." },
+          url: { type: "string", description: "URL of the edited image. Pass to GenImage." },
           file: { type: "string" },
           prompt: { type: "string" },
           lane: { type: "string" },

@@ -10,12 +10,10 @@ export const name = 'dsh-genui-client'
 export const inject = ['slots']
 
 export function apply(ctx: Context): void {
-  // OpenUI's token block keys off `[data-openui-theme="dark"]` on the root element, and the
-  // genui image rules expect the same dark palette. Set it once, restore on unload.
-  const root = document.documentElement
-  const previousTheme = root.dataset.openuiTheme
-  root.dataset.openuiTheme = 'dark'
-
+  // No `data-openui-theme` here on purpose. Latching OpenUI to dark meant a light shell grew
+  // dark cards, and it was a second theme to keep in sync with the harness one. styles.css
+  // re-points every OpenUI colour, radius and type role at the `--dsw-*` tokens instead, so
+  // the program follows the shell's light/dark switch by inheritance alone.
   const style = document.createElement('style')
   style.dataset.plugin = 'dsh-genui'
   style.textContent = `${openuiCss}\n${defaultsCss}\n${localCss}`
@@ -23,8 +21,6 @@ export function apply(ctx: Context): void {
 
   ctx.effect(() => () => {
     style.remove()
-    if (previousTheme === undefined) delete root.dataset.openuiTheme
-    else root.dataset.openuiTheme = previousTheme
   })
 
   // Shadow the built-in Assistant row instead of adding a second one: the official

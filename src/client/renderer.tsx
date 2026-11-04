@@ -4,18 +4,19 @@
  * This replaces the built-in `assistant-step` renderer at priority -1 rather than adding a
  * second row: the official Definition keeps publishing the Assistant payload that Turn-tail,
  * the token footer, and the process disclosure read, and only the painting changes. See
- * `test/spike.md` for why the exclusive-Definition design was dropped.
+ * `docs/client-contract.md` for why the exclusive-Definition design was dropped.
  */
 import { useMemo, useState, type ReactNode } from 'react'
 import { Renderer } from '@openuidev/react-lang'
 import { MarkdownText, type MarkdownLabels } from '@deepseek-ai/dsh-client-ui-primitives'
-import { harnessLibrary } from './library'
+import { genuiLibrary } from './library'
 import { makeToolProvider } from './toolProvider'
 import { friendlyErrors, repairProgram } from './repair'
 import { ReplayContext } from './replay'
 import { ImageWaitProvider, useImageAnimating } from './pending'
 import {
   assistantText,
+  isTailStep,
   observeStep,
   programText,
   reasoningText,
@@ -64,7 +65,10 @@ export function OpenUIRow({ node, groupPart }: OpenUIRowProps): ReactNode {
   const [retries, setRetries] = useState(0)
   const [errors, setErrors] = useState('')
   const allowGeneration = live || allow
-  const provider = useMemo(() => makeToolProvider({ allowGeneration }), [allowGeneration])
+  const provider = useMemo(
+    () => makeToolProvider({ allowGeneration, isTail: () => isTailStep(key) }),
+    [allowGeneration, key],
+  )
 
   // The disclosure's copy of this step: reasoning only, never the answer.
   if (groupPart === 'reasoning') {
@@ -105,7 +109,7 @@ export function OpenUIRow({ node, groupPart }: OpenUIRowProps): ReactNode {
                 // A retry has to re-evaluate the program's queries, which only happens on a
                 // fresh mount.
                 key={retries}
-                library={harnessLibrary}
+                library={genuiLibrary}
                 response={repairProgram(programText(text))}
                 toolProvider={provider}
                 queryLoader={<QueryThinking />}

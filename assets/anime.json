@@ -54,6 +54,6 @@
   },
   "9": {
     "class_type": "SaveImage",
-    "inputs": { "images": ["7", 0], "filename_prefix": "harness_anime" }
+    "inputs": { "images": ["7", 0], "filename_prefix": "genui_anime" }
   }
 }

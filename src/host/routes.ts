@@ -11,7 +11,8 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import { readRender } from './images'
 import type { ModeStore } from './mode'
-import type { GenuiConfig, GenuiService } from './service'
+import type { Config as GenuiConfig } from './config'
+import { IMAGE_ROUTE, type GenuiService } from './service'
 
 export class HttpError extends Error {
   constructor(
@@ -148,7 +149,11 @@ export function registerRoutes(
           if (req.method === 'GET') {
             const session = url.searchParams.get('session')
             if (!session) {
-              sendJson(res, 200, { sessions: mode.sessions() })
+              sendJson(res, 200, {
+                default: mode.defaultOn,
+                sessions: mode.sessions(),
+                off: mode.offSessions(),
+              })
               return
             }
             sendJson(res, 200, { session, openui: mode.isOn(session) })
@@ -174,11 +179,11 @@ export function registerRoutes(
 
     ctx.webServer.register({
       kind: 'prefix',
-      path: '/genui/images',
+      path: IMAGE_ROUTE,
       handler: (req, res) =>
         guard(req, res, async () => {
           const pathname = new URL(req.url ?? '/', 'http://127.0.0.1').pathname
-          const prefix = '/genui/images/'
+          const prefix = `${IMAGE_ROUTE}/`
           if (!pathname.startsWith(prefix)) throw new HttpError(404, 'not found')
           let name: string
           try {

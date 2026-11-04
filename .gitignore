@@ -1,1 +1,8 @@
 node_modules/
+
+# Regeneration artefacts of scripts/gen-prompt.sh, never the committed prompt itself.
+assets/system-prompt.candidate.txt
+assets/system-prompt.generated.txt
+
+*.log
+.DS_Store

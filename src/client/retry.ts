@@ -1,7 +1,7 @@
 /**
  * ComfyUI may still be cold-starting when a saved conversation replays its Query(), and a
  * transient failure must not leave a permanent red box under the image. This wrapper retries
- * the render a few times with a growing delay; the Rust side already waits for liveness, so
+ * the render a few times with a growing delay; the host already waits for liveness, so
  * a couple of attempts covers a slow boot or a momentarily busy queue.
  */
 

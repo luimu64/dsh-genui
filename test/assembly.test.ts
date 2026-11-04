@@ -1,31 +1,28 @@
 /**
  * Prompt assembly against the real `SystemPrompt` service, not a stub.
  *
- * The deployment this bundle runs in has a bundle (`dsh-liberation`) that prepends a listener
- * replacing `assembly.sections` wholesale. A plain listener adds the OpenUI section before
- * that rewrite and silently loses it — which is exactly what happened: the mode was on, the
- * route answered, and the model still got markdown. These tests are the regression.
+ * A profile may also run a bundle that owns the whole prompt and prepends a listener which
+ * replaces `assembly.sections` wholesale. A plain listener adds the OpenUI section before
+ * that rewrite and silently loses it: the mode reads on, the route answers, and the model
+ * still gets markdown. These tests are the regression.
  */
 import { describe, expect, test } from 'bun:test'
 import { Context } from '@deepseek-ai/cordis'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import { registerAgentPrompt } from '../src/host/prompt'
 import type { ModeStore } from '../src/host/mode'
+import { testConfig } from './helpers'
 
-const config = {
-  comfyBase: 'http://127.0.0.1:8188',
-  imagesDir: '/nonexistent/genui-images',
-  maxBatch: 8,
-  pollMs: 750,
-  minPngBytes: 30_000,
-}
+const config = testConfig({ defaultOn: false })
 
 function store(on: Set<string>): ModeStore {
   return {
     file: '/tmp/genui-mode.json',
+    defaultOn: false,
     isOn: (id) => on.has(id),
     set: (id, next) => void (next ? on.add(id) : on.delete(id)),
     sessions: () => [...on],
+    offSessions: () => [],
   }
 }
 
@@ -35,7 +32,7 @@ function promptReplacer(ctx: Context, text: string): void {
     'system-prompt/assemble',
     async (_assembly, _context, next) => {
       const assembly = await next()
-      return { ...assembly, sections: [{ name: 'liberation:complete', text }] }
+      return { ...assembly, sections: [{ name: 'persona:complete', text }] }
     },
     { prepend: true } as any,
   )
@@ -80,10 +77,10 @@ describe('prompt assembly', () => {
     const agent = { session: { id: 's-on', header: {} } } as any
     const assembled = await ctx.systemPrompt.assemble({ agent, scope: agent })
     const names = assembled.sections.map((section) => section.name)
-    expect(names).toContain('liberation:complete')
+    expect(names).toContain('persona:complete')
     expect(names).toContain('genui:openui')
     // The persona still owns the prompt; the answer format is appended to it.
-    expect(names[0]).toBe('liberation:complete')
+    expect(names[0]).toBe('persona:complete')
   })
 
   test('adds the section once, however often the prompt is assembled', async () => {

@@ -2,8 +2,17 @@
     - id: genui
       name: dsh-genui
       config:
+        # Where the ComfyUI this bundle talks to is listening.
         comfyBase: http://127.0.0.1:8188
-        imagesDir: /home/luimu/.local/share/openui-harness/images
+        # Where renders are written and served from. Omit it for
+        # $XDG_DATA_HOME/dsh-genui/images (~/.local/share/dsh-genui/images).
+        # imagesDir: /srv/dsh-genui/images
+        # Upper bound on `count` for one batch, and the history poll interval in ms.
         maxBatch: 8
         pollMs: 750
+        # A PNG under this size is a failed render, not a picture.
         minPngBytes: 30000
+        # Stem of render file names: <filePrefix>_<lane>_<seed>.png.
+        filePrefix: genui
+        # Answers are OpenUI programs unless a conversation says /openui off.
+        defaultOn: true

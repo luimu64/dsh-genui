@@ -14,7 +14,7 @@ export const inject = ['webServer', 'systemPrompt']
 export { Config }
 
 export function apply(ctx: Context, config: GenuiConfig): void {
-  const mode = createModeStore()
+  const mode = createModeStore(undefined, { defaultOn: config.defaultOn })
   const service = createGenuiService(config)
   ctx.effect(() => {
     const disposers = registerRoutes(ctx, service, config, mode)
