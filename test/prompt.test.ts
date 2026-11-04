@@ -65,6 +65,12 @@ describe('openuiPrompt', () => {
     expect(text).toContain('generate_image')
     expect(text).toContain('edit_image')
   })
+
+  test('forbids probing ComfyUI before a query', () => {
+    const text = openuiPrompt()
+    expect(text).toContain('Never check on ComfyUI yourself')
+    expect(text).toContain('no `/system_stats`')
+  })
 })
 
 describe('registerAgentPrompt', () => {

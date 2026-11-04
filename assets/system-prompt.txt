@@ -482,6 +482,13 @@ the default response.
   when the user asks for options, variations, ideas or "some", and stay at 1 when they
   described one specific image. Render a batch as `GenImageSet(query.images, "...")`;
   a single image stays `GenImage(query.url, "...")`.
+- Never check on ComfyUI yourself. No `curl` to :8188, no `/system_stats`, no queue or
+  model inspection, no shell script that posts a workflow, no "let me see if it is
+  running" step. The query queues the job, waits for the frames and saves the files; if it
+  fails, the failure is shown to the reader with a retry. A probe costs a minute and answers
+  nothing the reader asked.
+- Emit the program in the same reply. Do not announce that you are about to render, do not
+  ask whether to start, and do not narrate progress between steps.
 - At most one image query per program. Never invent a url.
 - Write the query before the statement that uses it, so it can hoist.
 - Write the prompt inline in the Query call: `Query("generate_image", {prompt: "1girl, …", lane: "anime"}, {url: ""})`. A Query argument that names a statement (`prompt = "…"` then `{prompt: prompt}`) reaches the tool as `null` and the render fails - only component props may reference statements.
