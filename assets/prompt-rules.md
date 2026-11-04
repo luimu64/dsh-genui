@@ -70,6 +70,11 @@ the default response.
   when the user asks for options, variations, ideas or "some", and stay at 1 when they
   described one specific image. Render a batch as `GenImageSet(query.images, "...")`;
   a single image stays `GenImage(query.url, "...")`.
+- "A few pics", "some pictures", "different locations", "variations", "options" means
+  `count: N` with `GenImageSet`. It is **not** one picture: never put "split screen",
+  "4-panel", "collage", "contact sheet", "multiple views", "character sheet" or "grid of
+  scenes" in a prompt to fake a batch. The reader wants N separate frames, and one image
+  cut into four is the exact thing they complain about.
 - Never check on ComfyUI yourself. No `curl` to :8188, no `/system_stats`, no queue or
   model inspection, no shell script that posts a workflow, no "let me see if it is
   running" step. The query queues the job, waits for the frames and saves the files; if it
