@@ -14,10 +14,25 @@ import { makeToolProvider } from './toolProvider'
 import { friendlyErrors, repairProgram } from './repair'
 import { ReplayContext } from './replay'
 import { ImageWaitProvider, useImageAnimating } from './pending'
-import { assistantText, observeStep, programText, rowMode, stepKey, type AssistantRowData } from './assistant'
+import {
+  assistantText,
+  observeStep,
+  programText,
+  reasoningText,
+  rowMode,
+  stepKey,
+  type AssistantRowData,
+} from './assistant'
 
 export interface OpenUIRowProps {
   node: { data: AssistantRowData }
+  /**
+   * The same step is routed twice: once inside the turn-process disclosure with
+   * `groupPart: "reasoning"`, once as the answer row. Honouring the part is what keeps the
+   * answer from being painted inside the disclosure as well — which is exactly how a step
+   * looked like it was shown twice and then folded away.
+   */
+  groupPart?: string
 }
 
 /** English chrome for the shell's markdown renderer; the plugin's copy is not localized. */
@@ -36,7 +51,7 @@ function QueryThinking(): ReactNode {
   return <div className="genui-loading" role="status" aria-label="Loading" />
 }
 
-export function OpenUIRow({ node }: OpenUIRowProps): ReactNode {
+export function OpenUIRow({ node, groupPart }: OpenUIRowProps): ReactNode {
   const data = node.data
   const key = stepKey(data)
   // Read once per paint: a step that streamed in this page session may queue ComfyUI, a step
@@ -50,6 +65,16 @@ export function OpenUIRow({ node }: OpenUIRowProps): ReactNode {
   const [errors, setErrors] = useState('')
   const allowGeneration = live || allow
   const provider = useMemo(() => makeToolProvider({ allowGeneration }), [allowGeneration])
+
+  // The disclosure's copy of this step: reasoning only, never the answer.
+  if (groupPart === 'reasoning') {
+    const reasoning = reasoningText(data.blocks)
+    return reasoning ? (
+      <div className="genui-reasoning" style={{ whiteSpace: 'pre-wrap' }}>
+        {reasoning}
+      </div>
+    ) : null
+  }
 
   // Nothing to paint: an empty settled answer, or a step that has written no text yet.
   if (mode === 'empty' || mode === 'none') return null

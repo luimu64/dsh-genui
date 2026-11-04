@@ -49,6 +49,13 @@
   box-sizing: border-box;
 }
 
+.genui-reasoning {
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-caption, #8b8b93);
+  overflow-wrap: anywhere;
+}
+
 .genui-fallback {
   font: inherit;
   color: inherit;
