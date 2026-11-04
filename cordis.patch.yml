@@ -14,5 +14,11 @@
         minPngBytes: 30000
         # Stem of render file names: <filePrefix>_<lane>_<seed>.png.
         filePrefix: genui
+        # Image workflows this deployment exposes. `real` is the default. Add `anime` to opt
+        # in to the anime lane: its graphs, its full-checkpoint presets and its prompt
+        # section. Nothing anime-related is loaded, advertised or queued unless it is listed.
+        workflows:
+          - real
+          # - anime
         # Answers are OpenUI programs unless a conversation says /openui off.
         defaultOn: true

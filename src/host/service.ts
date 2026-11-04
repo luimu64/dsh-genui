@@ -21,7 +21,8 @@ import {
   type Quality,
 } from './graphs'
 import { createComfyClient, type ComfyClient, type ImageRef } from './comfy'
-import { EDIT_MODEL } from './models'
+import { EDIT_MODEL, PRESET_LANE } from './models'
+import { parseWorkflows } from '../shared/models'
 import { readRender, resolveSource, saveRender } from './images'
 import type { Config as GenuiConfig } from './config'
 
@@ -82,7 +83,7 @@ export interface GenResult {
 export interface GenuiService {
   generate(req: GenerateInput): Promise<GenResult>
   edit(req: EditInput): Promise<GenResult>
-  health(): Promise<{ comfy: boolean }>
+  health(): Promise<{ comfy: boolean; workflows: string[] }>
 }
 
 const FAST_TIMEOUT_MS = 240_000
@@ -119,6 +120,10 @@ export function createGenuiService(
   const maxBatch = Math.max(1, Math.trunc(config.maxBatch || 8))
   const minPngBytes = Math.max(1, Math.trunc(config.minPngBytes || 30_000))
   const filePrefix = config.filePrefix?.trim() || 'genui'
+  // Opt-in workflows: a lane the deployment did not enable is refused here, with a message
+  // that says what is enabled, rather than queuing a graph whose checkpoints are not there.
+  const workflows = parseWorkflows(config.workflows)
+  const enabled = new Set(workflows)
 
   async function collect(images: ImageRef[], seed: number, steps: number, base: {
     prompt: string
@@ -182,9 +187,16 @@ export function createGenuiService(
       const lane: Lane = isLane(input.lane) ? input.lane : 'real'
       if (lane === 'edit') throw new Error('the edit lane needs edit_image (it takes a source image)')
       const quality: Quality = isQuality(input.quality) ? input.quality : 'fast'
+      if (!enabled.has(lane)) {
+        throw new Error(
+          `lane "${lane}" is not enabled in this deployment (enabled workflows: ${workflows.join(', ')})`,
+        )
+      }
       const preset: Preset | undefined = isPreset(input.preset) ? input.preset : undefined
-      if (preset && lane !== 'anime') {
-        throw new Error(`preset "${preset}" is a full anime checkpoint: it needs lane "anime"`)
+      if (preset && lane !== PRESET_LANE) {
+        throw new Error(
+          `preset "${preset}" is a full ${PRESET_LANE} checkpoint: it needs lane "${PRESET_LANE}"`,
+        )
       }
 
       const req: GenRequest = {
@@ -246,9 +258,9 @@ export function createGenuiService(
         const res = await fetch(`${config.comfyBase.replace(/\/+$/, '')}/system_stats`, {
           signal: AbortSignal.timeout(2000),
         })
-        return { comfy: res.ok }
+        return { comfy: res.ok, workflows }
       } catch {
-        return { comfy: false }
+        return { comfy: false, workflows }
       }
     },
   }

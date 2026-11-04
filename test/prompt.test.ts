@@ -40,8 +40,28 @@ describe('renderList', () => {
 describe('openuiPrompt', () => {
   test('reads the committed prompt', () => {
     const text = openuiPrompt()
-    expect(text.length).toBeGreaterThan(10_000)
+    expect(text.length).toBeGreaterThan(8_000)
     expect(text).toContain('root = Stack(')
+  })
+
+  test('a default install gets no anime section', () => {
+    const text = openuiPrompt()
+    expect(text).not.toContain('Optional workflow: anime')
+    expect(text).not.toContain('booru')
+    expect(text).not.toContain('"anime"')
+    expect(text).not.toContain('miaoharem')
+  })
+
+  test('enabling the anime workflow appends its section, before the rules', () => {
+    const text = openuiPrompt(['real', 'anime'])
+    expect(text).toContain('Optional workflow: anime')
+    expect(text).toContain('lane: "anime"')
+    expect(text).toContain('preset')
+    const animeAt = text.indexOf('Optional workflow: anime')
+    const rulesAt = text.indexOf('## Harness rules')
+    expect(animeAt).toBeGreaterThan(-1)
+    expect(rulesAt).toBeGreaterThan(animeAt)
+    expect(text.trimEnd().endsWith(readFileSync(new URL('../assets/prompt-rules.md', import.meta.url), 'utf8').trimEnd())).toBe(true)
   })
 
   test('is written to sit beside the harness prompt, not instead of it', () => {

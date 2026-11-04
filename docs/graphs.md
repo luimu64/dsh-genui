@@ -12,6 +12,14 @@ data change rather than a patch.
 - `src/shared/models.ts` — the ids alone, shared with the client's tool schema.
 - `src/host/graphs.ts` — the mutation: prompt, negative, size, batch, seed, steps, CFG, file
   prefix, and the optional hires pair.
+- `src/host/config.ts` — `workflows`: which lanes this deployment exposes. `['real']` is
+  the default; `anime` is opt-in, and a disabled lane is refused before a graph is queued.
+
+A workflow is a lane plus its prompt text. `real` is the two photo graphs.
+`anime` is `anime.json`, `anime-hq.json`, the two preset graphs, the anime lane in the tool
+surface, and `assets/prompt-anime.md`. The prompt section is appended by the host only when
+the workflow is enabled, so a default install neither installs those checkpoints nor pays for
+their prompt tokens.
 
 ## The node contract
 
@@ -62,14 +70,15 @@ undistilled one wants 30–50 steps and a real CFG. Two rules are enforced on to
 3. Change the ids in `src/shared/models.ts` only if you are adding a lane or a preset.
    Presets are anime-lane extras; a preset replaces `quality`, so give it the settings its
    author publishes and no cheaper variant.
-4. Rewrite the matching sentences in `src/client/library.tsx` (`genuiPromptOptions`) — the
-   model reads those, not the code. Then regenerate the prompt catalogue
-   (`bun run prompt`) and adopt the diff into `assets/system-prompt.txt`.
+4. Rewrite the sentences the model reads — the code is not what it follows. For a default
+   workflow that is `genuiPromptOptions` in `src/client/library.tsx`; regenerate the
+   catalogue with `bun run prompt` and adopt the diff into `assets/prompt-core.txt`. For the
+   anime workflow it is `assets/prompt-anime.md`, which is hand-written and not generated.
 5. `bun test`. `test/graphs.test.ts` builds every advertised lane, quality and preset, so a
    missing or malformed template fails there rather than under a user's prompt.
 
 Nothing here is specific to the graphs that ship: `anime` and `real` are ids for two style
-families, and the two shipped presets are examples. If your ComfyUI has none of the
+families, the two shipped presets are examples, and only `real` is on by default. If your ComfyUI has none of the
 checkpoints the committed graphs name, the bundle will still start — a render fails with
 ComfyUI's own "value not in list" error until you point the graph at a file you actually have.
 

@@ -1,6 +1,7 @@
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import Schema from '@deepseek-ai/schemastery'
+import { DEFAULT_WORKFLOWS } from '../shared/models'
 
 export interface Config {
   /** Base URL of the local ComfyUI. */
@@ -17,6 +18,11 @@ export interface Config {
   defaultOn: boolean
   /** Stem of render file names: `<filePrefix>_<lane>_<seed>.png`. */
   filePrefix: string
+  /**
+   * Image workflows this deployment exposes. Defaults to `['real']`; add `'anime'` to opt in
+   * to the anime lane, its full-checkpoint presets and its prompt section.
+   */
+  workflows: string[]
 }
 
 /**
@@ -39,4 +45,5 @@ export const Config: Schema<Config> = Schema.object({
   minPngBytes: Schema.number().default(30_000),
   defaultOn: Schema.boolean().default(true),
   filePrefix: Schema.string().default('genui'),
+  workflows: Schema.array(Schema.string()).default([...DEFAULT_WORKFLOWS]),
 })

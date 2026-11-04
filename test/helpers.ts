@@ -13,6 +13,9 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     minPngBytes: 30_000,
     defaultOn: false,
     filePrefix: 'genui',
+    // Tests exercise the full surface; the *default* install is ['real'] and is covered in
+    // config.test.ts and the opt-in cases below.
+    workflows: ['real', 'anime'],
     ...overrides,
   }
 }

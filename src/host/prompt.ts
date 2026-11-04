@@ -22,6 +22,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-system-prompt'
+import { DEFAULT_WORKFLOWS, parseWorkflows } from '../shared/models'
 import { listRenders } from './images'
 import type { ModeStore } from './mode'
 import type { Config } from './config'
@@ -29,14 +30,30 @@ import type { Config } from './config'
 const SECTION = 'genui:openui'
 const CONTEXT = 'genui:renders'
 
-export function openuiPrompt(): string {
+/** Read one prompt asset, from the built bundle or from source. */
+function asset(name: string): string {
   const candidates = [
-    new URL('../assets/system-prompt.txt', import.meta.url), // built lib/index.js
-    new URL('../../assets/system-prompt.txt', import.meta.url), // src/host/prompt.ts
+    new URL(`../assets/${name}`, import.meta.url), // built lib/index.js
+    new URL(`../../assets/${name}`, import.meta.url), // src/host/prompt.ts
   ]
   const file = candidates.find((url) => existsSync(fileURLToPath(url)))
-  if (!file) throw new Error('dsh-genui: assets/system-prompt.txt not found')
-  return readFileSync(file, 'utf8')
+  if (!file) throw new Error(`dsh-genui: assets/${name} not found`)
+  return readFileSync(file, 'utf8').trimEnd()
+}
+
+/**
+ * The section the model reads, assembled from parts:
+ *
+ * - `prompt-core.txt` — the OpenUI catalogue and the tool surface of the default workflows;
+ * - `prompt-anime.md` — only when the anime workflow is enabled, because its lane, presets
+ *   and prompt conventions are dead weight (and a misdirection) everywhere else;
+ * - `prompt-rules.md` — the hand-written harness rules, always last.
+ */
+export function openuiPrompt(workflows: readonly string[] = DEFAULT_WORKFLOWS): string {
+  const parts = [asset('prompt-core.txt')]
+  if (workflows.includes('anime')) parts.push(asset('prompt-anime.md'))
+  parts.push(asset('prompt-rules.md'))
+  return `${parts.join('\n\n')}\n`
 }
 
 /**
@@ -57,7 +74,7 @@ function agentOf(context: unknown): any {
 }
 
 export function registerAgentPrompt(ctx: Context, config: Config, mode: ModeStore): void {
-  const prompt = openuiPrompt()
+  const prompt = openuiPrompt(parseWorkflows(config.workflows))
 
   ctx.on('system-prompt/assemble', async (assembly, context, next) => {
     const built = await next()

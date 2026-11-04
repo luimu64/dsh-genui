@@ -132,13 +132,45 @@ describe('edit', () => {
 describe('health', () => {
   test('reports comfy as down when the port is dead', async () => {
     const dead = createGenuiService(testConfig({ comfyBase: 'http://127.0.0.1:1', imagesDir: dir, pollMs: 10, minPngBytes: 4 }))
-    expect(await dead.health()).toEqual({ comfy: false })
+    expect(await dead.health()).toEqual({ comfy: false, workflows: ['real', 'anime'] })
   })
 
   test('reports comfy as up when system_stats answers', async () => {
     const up = Bun.serve({ port: 0, fetch: () => Response.json({ system: { comfyui_version: '0.0' } }) })
     const live = createGenuiService(testConfig({ comfyBase: `http://127.0.0.1:${up.port}`, imagesDir: dir, pollMs: 10, minPngBytes: 4 }))
-    expect(await live.health()).toEqual({ comfy: true })
+    expect(await live.health()).toEqual({ comfy: true, workflows: ['real', 'anime'] })
     up.stop(true)
+  })
+})
+
+describe('opt-in workflows', () => {
+  test('a lane the deployment did not enable is refused before anything is queued', async () => {
+    const before = fake.queueCount()
+    const realOnly = createGenuiService(
+      testConfig({ comfyBase: fake.base, imagesDir: dir, pollMs: 10, minPngBytes: 4, workflows: ['real'] }),
+    )
+    await expect(realOnly.generate({ lane: 'anime', prompt: 'x' })).rejects.toThrow(
+      'lane "anime" is not enabled',
+    )
+    // A preset rides the anime lane, so it is refused by the same gate.
+    await expect(realOnly.generate({ lane: 'anime', prompt: 'x', preset: 'dasiwa' })).rejects.toThrow(
+      'is not enabled',
+    )
+    expect(fake.queueCount()).toBe(before)
+  })
+
+  test('the default lane still renders when only real is enabled', async () => {
+    const realOnly = createGenuiService(
+      testConfig({ comfyBase: fake.base, imagesDir: dir, pollMs: 10, minPngBytes: 4, workflows: ['real'] }),
+    )
+    const result = await realOnly.generate({ prompt: 'a red fox' })
+    expect(result.lane).toBe('real')
+  })
+
+  test('health reports the enabled workflows', async () => {
+    const realOnly = createGenuiService(
+      testConfig({ comfyBase: 'http://127.0.0.1:1', pollMs: 10, minPngBytes: 4, workflows: ['real'] }),
+    )
+    expect(await realOnly.health()).toEqual({ comfy: false, workflows: ['real'] })
   })
 })

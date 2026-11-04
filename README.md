@@ -32,10 +32,12 @@ user prompt
 - DeepSeek Harness `>=0.2.1-rc.5 <0.3.0`, with the web client.
 - Node 24 (the official build; nothing native to compile).
 - A reachable ComfyUI — by default `http://127.0.0.1:8188`.
-- ComfyUI checkpoints matching the graphs in `assets/`. The shipped graphs name specific
-  files; if your ComfyUI has different ones, either edit the templates or read
-  [docs/graphs.md](docs/graphs.md) and point the registry at your own. Until then a render
-  fails with ComfyUI's own "value not in list" error — the bundle itself still loads.
+- ComfyUI checkpoints matching the graphs in `assets/`. A default install needs the two
+  `real` graphs only; the anime lane brings more, and is off unless you ask for it (see
+  [Workflows](#workflows-what-is-on)). The graphs name specific files; if your ComfyUI has
+  different ones, edit the templates or read [docs/graphs.md](docs/graphs.md) and point the
+  registry at your own. Until then a render fails with ComfyUI's own "value not in list"
+  error — the bundle itself still loads.
 - Bun, for development only.
 
 ## Install
@@ -58,7 +60,7 @@ dsh --profile genui --dump-config | sed -n '/dsh-genui/,+8p'
 dsh --profile genui --no-open --port 3081
 
 # 5. from another shell
-curl -fsS http://127.0.0.1:3081/genui/health     # {"comfy":true}
+curl -fsS http://127.0.0.1:3081/genui/health     # {"comfy":true,"workflows":["real"]}
 ```
 
 `lib/` is committed, so installing from a checkout needs no build step. The `/genui/*` routes
@@ -77,17 +79,40 @@ Resolved by `src/host/config.ts`; every key is optional.
 | `pollMs` | `750` | ComfyUI history poll interval while a job runs |
 | `minPngBytes` | `30000` | a smaller PNG is a failed render, not a picture |
 | `filePrefix` | `genui` | stem of render file names: `<filePrefix>_<lane>_<seed>.png` |
+| `workflows` | `[real]` | image workflows this deployment exposes; `anime` is opt-in |
 | `defaultOn` | `true` | a conversation answers as an OpenUI program unless `/openui off` says otherwise |
 
 One ComfyUI job per batch: `batch_size = count`, one history entry, N images, so all frames of
 a batch appear together and a failed frame fails the request.
 
-`lane` picks the model family, `quality` picks how much compute to spend on it, and two more
+## Workflows: what is on
+
+A **workflow** is a lane plus everything it drags in: graphs, defaults, presets and prompt
+text. Only `real` is on by default — one caption model, two graphs (fast and high), nothing
+else to install, no extra prompt tokens.
+
+`anime` is opt-in. Turning it on adds the anime lane, its fast/high graphs and its
+full-checkpoint presets; turning it off means none of that is loaded, advertised to the model
+or queued. A request that names a disabled lane is refused with a message saying what is
+enabled, rather than waiting on checkpoints that were never there:
+
+```yaml
+# profile cordis.patch.yml, under the dsh-genui row
+workflows: [real, anime]
+```
+
+What `anime` brings: `assets/anime.json`, `assets/anime-hq.json` and the preset graphs,
+the `anime` lane in the tool surface, booru-tag prompt conventions, and
+`assets/prompt-anime.md` — a section the host appends to the system prompt only when the
+workflow is on. A default install never pays for it, in tokens or in prompt drift.
+
+`lane` picks the workflow, `quality` picks how much compute to spend on it, and two more
 knobs sit on top:
 
 - `preset` swaps the anime checkpoint for a further full one at its own published settings.
-  Presets are anime-only and replace `quality` rather than stacking with it: a distilled step
-  budget turns an undistilled checkpoint into mush, so there is no cheaper honest setting.
+  Presets belong to the anime workflow, and they replace `quality` rather than stacking with
+  it: a distilled step budget turns an undistilled checkpoint into mush, so there is no
+  cheaper honest setting.
 - `upscale: 1.05–2` (or `true` for 1.5) adds a hires pass — `LatentUpscaleBy`, then a second
   sampler at denoise 0.45 with the same model and conditioning, then decode. About 60% more
   steps, trimmed to stay inside 4.2M pixels.
@@ -102,7 +127,7 @@ one preset never answers another.
 | `/genui/generate` | POST | `{ req: { prompt, lane?, quality?, preset?, upscale?, count?, steps?, cfg?, width?, height?, negative?, nsfw? } }` |
 | `/genui/edit` | POST | `{ req: { prompt, source?, steps?, seed?, lora?, loraStrength? } }` |
 | `/genui/images/<file>` | GET | `image/png`, immutable cache; the file name is validated before it touches disk |
-| `/genui/health` | GET | `{ comfy: boolean }` |
+| `/genui/health` | GET | `{ comfy: boolean, workflows: string[] }` |
 | `/genui/mode` | GET | `{ default, sessions, off }`, or `{ session, openui }` with `?session=` |
 | `/genui/mode` | POST | `{ session, enabled }` → `{ session, openui }` |
 
@@ -189,8 +214,8 @@ Reopening a conversation therefore never re-runs old prompts.
 Lane and preset ids are stable; which checkpoint a lane loads is a property of the graph, so a
 deployment with different weights keeps the ids and swaps the templates. The registry lives in
 `src/host/models.ts`, the ids in `src/shared/models.ts` (shared with the client tool schema, so
-the two cannot drift), and the contract for editing or replacing a graph is in
-[docs/graphs.md](docs/graphs.md).
+the two cannot drift), and the contract for editing or replacing a graph — including where the
+opt-in workflow's prompt text lives — is in [docs/graphs.md](docs/graphs.md).
 
 ## Development
 
@@ -207,11 +232,13 @@ React, React DOM, cordis and the harness's markdown primitives stay external bec
 seeds those instances. The committed bundle is checked into `lib/` on purpose, and CI fails if
 it drifts from `src/`.
 
-The system prompt is two parts: the component catalogue OpenUI generates from
-`src/client/library.tsx`, and the hand-written harness rules in `assets/prompt-rules.md`.
-`bun run prompt` regenerates the catalogue as a *candidate*; the committed catalogue is
-hand-edited for the harness's voice, so adopt the diff rather than overwriting the file. A test
-fails if the committed prompt stops ending with the rules asset.
+The system prompt is assembled at request time from three assets: the catalogue OpenUI
+generates from `src/client/library.tsx` (`assets/prompt-core.txt`), the optional
+`assets/prompt-anime.md`, and the hand-written rules in `assets/prompt-rules.md`, which are
+always last. `bun run prompt` regenerates the catalogue as a *candidate*; the committed
+catalogue is hand-edited for the harness's voice, so adopt the diff rather than overwriting the
+file. Tests fail if the committed prompt stops ending with the rules asset, or if a default
+install starts shipping the anime section.
 
 Layout:
 

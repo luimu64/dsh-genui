@@ -130,9 +130,9 @@ export const EDIT_MODEL: ModelSpec = spec(editGraph, {
  * budget would return mush from an undistilled checkpoint, so there is no cheaper honest
  * setting for it.
  *
- * These two are shipped as examples. Their ids are the ids the tool schema advertises, so
- * rename them here *and* in the client tool description (see docs/graphs.md) when you swap
- * the graphs.
+ * These two are shipped as examples, and only reachable when the anime workflow is enabled.
+ * Their ids appear in `assets/prompt-anime.md` rather than the core prompt, so rename them
+ * there too when you swap the graphs (see docs/graphs.md).
  */
 export const PRESET_MODELS: Record<PresetId, ModelSpec> = {
   miaoharem: spec(animeMiaoGraph, {
@@ -152,6 +152,9 @@ export const PRESET_MODELS: Record<PresetId, ModelSpec> = {
     carriesStyle: true,
   }),
 }
+
+/** Presets are anime-lane extras: they inherit the anime workflow's enablement. */
+export const PRESET_LANE: LaneId = 'anime'
 
 /** The spec a request resolves to: a preset when one was asked for, else the lane/quality pair. */
 export function modelFor(lane: LaneId, quality: QualityId, preset?: PresetId): ModelSpec {

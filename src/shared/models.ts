@@ -10,9 +10,24 @@
  * graph, so a deployment that runs different weights keeps the ids and swaps the graphs.
  */
 
-/** Style families a caller may ask for. The edit lane is deliberately absent: it takes a source. */
-export const LANE_IDS = ['anime', 'real'] as const
+/**
+ * Style families a caller may ask for. The edit lane is deliberately absent: it takes a
+ * source image rather than a description.
+ */
+export const LANE_IDS = ['real', 'anime'] as const
 export type LaneId = (typeof LANE_IDS)[number]
+
+/**
+ * The workflows a fresh install exposes.
+ *
+ * `real` is the default: one caption model, one set of graphs, no extra prompt text. `anime`
+ * is opt-in — `workflows: [real, anime]` — because it brings its own checkpoints, its own
+ * prompt section and its own presets, and most deployments have no use for any of it.
+ */
+export const DEFAULT_WORKFLOWS: readonly LaneId[] = ['real']
+
+/** Workflows that are never on unless the deployment names them. */
+export const OPTIONAL_WORKFLOWS: readonly LaneId[] = ['anime']
 
 /** How much compute to spend on a lane. */
 export const QUALITY_IDS = ['fast', 'high'] as const
@@ -43,4 +58,14 @@ export function isQualityId(value: unknown): value is QualityId {
 
 export function isPresetId(value: unknown): value is PresetId {
   return typeof value === 'string' && (PRESET_IDS as readonly string[]).includes(value)
+}
+
+/**
+ * The workflows a deployment asked for, in a shape the rest of the code can trust: unknown
+ * ids dropped, duplicates collapsed, and an empty or missing list read as the default.
+ */
+export function parseWorkflows(value: unknown): LaneId[] {
+  if (!Array.isArray(value)) return [...DEFAULT_WORKFLOWS]
+  const asked = [...new Set(value.filter(isLaneId))]
+  return asked.length > 0 ? asked : [...DEFAULT_WORKFLOWS]
 }

@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import { defineComponent } from "@openuidev/react-lang";
 import { openuiLibrary } from "@openuidev/react-ui";
 import { Button } from "@deepseek-ai/dsh-client-ui-primitives";
-import { LANE_IDS, PRESET_IDS, QUALITY_IDS } from "../shared/models";
+import { DEFAULT_WORKFLOWS, QUALITY_IDS } from "../shared/models";
 import { imageUrls } from "./images";
 import { ImagePlaceholder } from "./pending";
 import { useReplay } from "./replay";
@@ -432,40 +432,36 @@ export const genuiLibrary = openuiLibrary.extend!({
  * generated prompt the `Query("generate_image", ...)` syntax - without it the model invents
  * a `generate_image(...)` function call that never reaches the host.
  *
- * The enum ids come from `src/shared/models.ts`, the same roster the host validates
- * against, so the two cannot drift. Rewrite the *descriptions* when you ship different
- * graphs (see docs/graphs.md); the ids only change in the roster.
+ * This is the **default** tool surface: the workflows a fresh install exposes. An opt-in
+ * workflow is not described here - the anime lane, its presets and its prompt conventions
+ * live in `assets/prompt-anime.md`, which the host appends when `workflows` names it. The
+ * enum ids come from `src/shared/models.ts`, the same roster the host validates against,
+ * so the two cannot drift. See docs/graphs.md.
  */
 export const genuiPromptOptions = {
   tools: [
     {
       name: "generate_image",
       description:
-        "Render images with the local ComfyUI. Use only when the user asks to see, draw, sketch, render or imagine a picture, never to decorate text. Emit at most one per program. Anime/manga/cartoon/illustration -> lane \"anime\" with booru-style tags. Photographs, products, real places, realistic people -> lane \"real\" with one natural-language sentence describing camera, light and lens. quality: \"fast\" (default) is a distilled model tuned for seconds per frame - use it for exploration, chat, and anything the user did not ask to be good. quality: \"high\" swaps in the undistilled checkpoint at its published settings (the anime lane runs 30 steps at CFG 5; the real lane 50 steps at CFG 3 and 992x1504) and takes one to four minutes per image plus a cold model load - use it when the user says high quality, best, final, print, or asks for one image they care about. preset swaps the anime checkpoint for a further full one at its own published settings (30 steps CFG 4.5, about 40 seconds); the ids are the extra graphs this deployment ships and are named in the schema. Pass a preset only on the anime lane, and only when the user wants a different anime look than the default pair; it replaces quality rather than combining with it. upscale adds a second sampler pass over a latent upscaled by that factor (true = 1.5, up to 2): roughly doubles the time and the file size for real extra detail - use it for wallpaper, print, or when the reader asks for sharper or bigger. count renders 1-8 variations in one batch for the same cost as one model load; use 2-4 for \"options\"/\"variations\"/\"some\", never more than 4 unless asked.",
+        "Render images with the local ComfyUI. Use only when the user asks to see, draw, sketch, render or imagine a picture, never to decorate text. Emit at most one per program. Lane \"real\" covers photographs, products, real places and realistic people: one natural-language sentence describing camera, light and lens. quality: \"fast\" (default) is a distilled model tuned for seconds per frame - use it for exploration, chat, and anything the user did not ask to be good. quality: \"high\" swaps in the undistilled checkpoint at its published settings (50 steps at CFG 3, 992x1504) and takes one to four minutes per image plus a cold model load - use it when the user says high quality, best, final, print, or asks for one image they care about. upscale adds a second sampler pass over a latent upscaled by that factor (true = 1.5, up to 2): roughly doubles the time and the file size for real extra detail - use it for wallpaper, print, or when the reader asks for sharper or bigger. count renders 1-8 variations in one batch for the same cost as one model load; use 2-4 for \"options\"/\"variations\"/\"some\", never more than 4 unless asked.",
       inputSchema: {
         type: "object",
         properties: {
           prompt: {
             type: "string",
             description:
-              "Booru tags for the anime lane, one natural-language sentence for the real lane.",
+              "One natural-language sentence: subject, setting, light, and a lens if it helps.",
           },
           lane: {
             type: "string",
-            enum: [...LANE_IDS],
-            description: "Which model family to drive. Defaults to real.",
+            enum: [...DEFAULT_WORKFLOWS],
+            description: "Which workflow to drive. Defaults to real.",
           },
           quality: {
             type: "string",
             enum: [...QUALITY_IDS],
             description:
               "fast = distilled lanes, seconds per image (default). high = undistilled checkpoints at published settings, minutes per image.",
-          },
-          preset: {
-            type: "string",
-            enum: [...PRESET_IDS],
-            description:
-              "Swap the anime checkpoint for a further full one at its own settings (30 steps CFG 4.5). The ids are deployment-defined: the two shipped here are full anime checkpoints with visibly different shading. Anime lane only, replaces quality.",
           },
           upscale: {
             type: "number",
@@ -480,12 +476,12 @@ export const genuiPromptOptions = {
           steps: {
             type: "number",
             description:
-              "Omit for the lane/quality default (anime 8 fast / 30 high, real 4 fast / 50 high, any preset 30). Only override to trade speed for detail.",
+              "Omit for the lane/quality default (real 4 fast / 50 high). Only override to trade speed for detail.",
           },
           nsfw: {
             type: "boolean",
             description:
-              "Set true for nude, sexual or explicit requests. Removes the anime template's 'safe' quality tag and the real template's 'nsfw' negative so the prompt is not overwritten. Always accompany it with adult subject tags.",
+              "Set true for nude, sexual or explicit requests: the template's content negatives are dropped so the prompt is not overwritten. Always accompany it with adult subject tags.",
           },
           width: { type: "number", description: "Defaults to 832 (992 on the high real lane)." },
           height: { type: "number", description: "Defaults to 1216 (1504 on the high real lane)." },
@@ -507,7 +503,6 @@ export const genuiPromptOptions = {
           prompt: { type: "string" },
           lane: { type: "string" },
           quality: { type: "string" },
-          preset: { type: "string" },
           upscale: { type: "number" },
           seed: { type: "number" },
           steps: { type: "number" },
@@ -550,14 +545,14 @@ export const genuiPromptOptions = {
   ],
   toolExamples: [
     `root = Stack([card])
-query = Query("generate_image", {prompt: "1girl, solo, red fox ears, autumn forest, golden light", lane: "anime"}, {url: ""})
-card = Card([GenImage(query.url, "A red fox girl in an autumn forest")])`,
+query = Query("generate_image", {prompt: "a red fox crossing fresh snow at dawn, 200mm, soft overcast light", lane: "real"}, {url: ""})
+card = Card([GenImage(query.url, "A red fox in fresh snow")])`,
     `root = Stack([card])
 query = Query("generate_image", {prompt: "a baker pulling bread from a stone oven, warm morning light, 35mm", lane: "real", quality: "high"}, {url: ""})
 card = Card([GenImage(query.url, "Baker at a stone oven, high quality")])`,
     `root = Stack([card])
-query = Query("generate_image", {prompt: "1girl, solo, silver hair, black leather jacket, neon alley", lane: "anime", count: 4}, {url: "", images: []})
-card = Card([GenImageSet(query.images, "Silver-haired girl in a neon alley")])`,
+query = Query("generate_image", {prompt: "a ceramic teapot on a linen cloth, window light, 50mm macro", lane: "real", count: 4}, {url: "", images: []})
+card = Card([GenImageSet(query.images, "Ceramic teapot, four variations")])`,
     `root = Stack([card])
 query = Query("edit_image", {prompt: "Change her jacket to red leather, keep everything else identical."}, {url: ""})
 card = Card([GenImage(query.url, "Jacket recoloured to red leather")])`,
