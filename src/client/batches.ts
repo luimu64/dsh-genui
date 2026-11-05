@@ -176,12 +176,16 @@ function newBatch(key: string, total: number, req: BatchRequest): Batch {
   }
 }
 
-/** One frame of a batch, as the host route takes it. */
-async function postFrame(req: BatchRequest): Promise<Rendered> {
+/**
+ * One frame of a batch, as the host route takes it. `key` travels with the request so the
+ * host can record which file answered it; that map is what lets a frame be found again after
+ * this browser loses its own cache.
+ */
+async function postFrame(req: BatchRequest, key: string): Promise<Rendered> {
   const res = await fetch(new URL('/genui/generate', document.baseURI), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ req: { ...req, count: 1 } }),
+    body: JSON.stringify({ req: { ...req, count: 1 }, key }),
   })
   const json = (await res.json().catch(() => ({}))) as Record<string, unknown>
   if (!res.ok) throw new Error(String(json.error ?? `genui request failed: ${res.status}`))
@@ -265,8 +269,9 @@ async function run(batch: Batch, req: BatchRequest) {
         // One job at a time: the whole point is a single GPU with one queue. The per-slot
         // key means a rerender or a reload never asks for a frame twice, and the per-slot
         // request carries this frame's own prompt when the batch listed one per picture.
-        const rendered = await cachedRender(slotKey(req, slot.index), () =>
-          withRetry(() => postFrame(slotRequest(req, slot.index))),
+        const key = slotKey(req, slot.index)
+        const rendered = await cachedRender(key, () =>
+          withRetry(() => postFrame(slotRequest(req, slot.index), key)),
         )
         slot.status = 'done'
         slot.url = rendered.url

@@ -26,6 +26,7 @@ import {
   type WorkflowSummary,
 } from './workflows'
 import { readRender, resolveSource, saveRender } from './images'
+import { createRenderIndex, safeKey, type IndexedRender, type RenderIndex } from './renderIndex'
 import { isQualityId } from '../shared/models'
 import { workflowsOf, type Config as GenuiConfig } from './config'
 
@@ -84,8 +85,15 @@ export interface GenResult {
 }
 
 export interface GenuiService {
-  generate(req: GenerateInput): Promise<GenResult>
-  edit(req: EditInput): Promise<GenResult>
+  /**
+   * `key` is the browser's cache key for this request. When it is sent, the render is
+   * recorded against it in the host-side index, so the picture can be found again after the
+   * browser's own cache is gone.
+   */
+  generate(req: GenerateInput, key?: string): Promise<GenResult>
+  edit(req: EditInput, key?: string): Promise<GenResult>
+  /** What this machine already rendered for a browser key, if anything. */
+  cached(keys: string[]): Record<string, IndexedRender>
   health(): Promise<{ comfy: boolean; workflows: string[] }>
   /** Every known workflow with the enabled flag folded in. */
   workflows(): WorkflowSummary[]
@@ -94,6 +102,9 @@ export interface GenuiService {
   /** The registry, for prompt sections and raw definitions. */
   readonly registry: WorkflowRegistry
 }
+
+/** One lookup covers a batch aggregate plus every frame of it. */
+const MAX_LOOKUP_KEYS = 16
 
 const FAST_TIMEOUT_MS = 240_000
 /** A full checkpoint plus a refine pass: slower than fast, far from the high lane's 50 steps. */
@@ -126,12 +137,40 @@ export function createGenuiService(
   config: GenuiConfig,
   comfy: ComfyClient = createComfyClient({ base: config.comfyBase, pollMs: config.pollMs }),
   registry: WorkflowRegistry = createWorkflowRegistry({ dir: config.workflowDir }),
+  index: RenderIndex = createRenderIndex(config.imagesDir),
 ): GenuiService {
   const maxBatch = Math.max(1, Math.trunc(config.maxBatch || 8))
   const minPngBytes = Math.max(1, Math.trunc(config.minPngBytes || 30_000))
   const filePrefix = config.filePrefix?.trim() || 'genui'
   // Read per request: the Settings page writes this volatile field while the harness runs.
   const workflowsNow = () => workflowsOf(config)
+
+  /**
+   * Record a finished render against the browser's key. Best effort: a request without a
+   * key (an old client) simply is not indexed, and a read-only imagesDir does not fail the
+   * render - the picture is saved either way.
+   */
+  const remember = (key: string | undefined, render: GenResult) => {
+    const safe = safeKey(key)
+    if (!safe) return
+    index.remember(safe, {
+      url: render.url,
+      file: render.file,
+      prompt: render.prompt,
+      lane: render.lane,
+      quality: render.quality,
+      preset: render.preset,
+      upscale: render.upscale,
+      seed: render.seed,
+      steps: render.steps,
+      images: render.images.map((image) => ({
+        url: image.url,
+        file: image.file,
+        seed: image.seed,
+        prompt: image.prompt,
+      })),
+    })
+  }
 
   async function collect(images: ImageRef[], seed: number, steps: number, base: {
     prompt: string
@@ -202,7 +241,7 @@ export function createGenuiService(
   return {
     registry,
 
-    async generate(input) {
+    async generate(input, key) {
       const prompt = requirePrompt(input.prompt, 'generate_image')
       const lane = stringOr(input.lane)?.trim() || 'real'
       if (lane === 'edit') throw new Error('the edit lane needs edit_image (it takes a source image)')
@@ -262,10 +301,12 @@ export function createGenuiService(
       const images = await comfy.wait(promptId, timeout, config.pollMs)
       const steps = Number(graph['6'].inputs.steps)
       const out = await collect(images, seed, steps, { prompt, lane, quality, preset, upscale })
-      return result(out, { prompt, lane, quality, preset, upscale, seed, steps })
+      const answer = result(out, { prompt, lane, quality, preset, upscale, seed, steps })
+      remember(key, answer)
+      return answer
     },
 
-    async edit(input) {
+    async edit(input, key) {
       const prompt = requirePrompt(input.prompt, 'edit_image')
       const source = resolveSource(config.imagesDir, stringOr(input.source))
       const bytes = await readRender(config.imagesDir, source)
@@ -285,7 +326,24 @@ export function createGenuiService(
       const promptId = await comfy.queue(graph)
       const images = await comfy.wait(promptId, FAST_TIMEOUT_MS, config.pollMs)
       const out = await collect(images, seed, steps, { prompt, lane: 'edit', quality: 'fast' })
-      return result(out, { prompt, lane: 'edit', quality: 'fast', seed, steps })
+      const answer = result(out, { prompt, lane: 'edit', quality: 'fast', seed, steps })
+      remember(key, answer)
+      return answer
+    },
+
+    /**
+     * A render this machine made, under the key the browser hashed. `images` is filled in for
+     * the batch aggregate; a frame entry is a one-element set.
+     */
+    cached(keys) {
+      const out: Record<string, IndexedRender> = {}
+      for (const asked of keys.slice(0, MAX_LOOKUP_KEYS)) {
+        const key = safeKey(asked)
+        if (!key) continue
+        const hit = index.lookup(key)
+        if (hit) out[key] = hit
+      }
+      return out
     },
 
     async health() {

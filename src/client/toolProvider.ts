@@ -10,8 +10,15 @@
  *    frames one at a time and publishes each as it lands, so the grid fills in instead of
  *    appearing all at once at the end.
  */
-import { cachedRender, hydratedOnce, imageKey, lookupRender, type Rendered } from './imageCache'
-import { startBatch, batchKey, promptsOf } from './batches'
+import {
+  cachedRender,
+  hydratedOnce,
+  imageKey,
+  lookupRender,
+  lookupRenderOnHost,
+  type Rendered,
+} from './imageCache'
+import { startBatch, batchKey, promptsOf, slotKey } from './batches'
 import { withRetry } from './retry'
 
 function post(path: string, body: unknown): Promise<Rendered> {
@@ -24,6 +31,11 @@ function post(path: string, body: unknown): Promise<Rendered> {
     if (!res.ok) throw new Error(String(json.error ?? `genui request failed: ${res.status}`))
     return json as unknown as Rendered
   })
+}
+
+/** The same call, carrying the browser's cache key, so the host can index the file it made. */
+function postKeyed(path: string, req: Record<string, unknown>, key: string): Promise<Rendered> {
+  return post(path, { req, key })
 }
 
 function missing(args: Record<string, unknown>): Rendered {
@@ -108,13 +120,23 @@ async function render(
   // answers from `imageKey`.
   const listed = promptsOf(args)
   if (tool === 'generate_image' && (listed.length > 1 || Number(args.count) > 1)) {
+    // A browser that cleared its own cache still has the pictures on the machine that made
+    // them. Ask the host once for the set and every frame of it; whatever comes back is in
+    // the cache by the time the batch hydrates, so a finished set is not a row of holes.
+    const count = Math.max(1, Math.round(listed.length > 1 ? listed.length : Number(args.count) || 1))
+    await lookupRenderOnHost([
+      batchKey(args),
+      ...Array.from({ length: count }, (_, index) => slotKey(args, index)),
+    ])
     return batchResult(args, mayGenerate())
   }
   const key = imageKey(args)
   const hit = await lookupRender(key)
   if (hit) return hit
+  const hosted = await lookupRenderOnHost([key])
+  if (hosted?.[key]?.url) return hosted[key]
   if (!mayGenerate()) return missing(args)
-  return cachedRender(key, () => withRetry(() => post(path, { req: args })))
+  return cachedRender(key, () => withRetry(() => postKeyed(path, args, key)))
 }
 
 /** The shape the OpenUI renderer takes as `toolProvider`. */

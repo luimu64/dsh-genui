@@ -12,11 +12,23 @@ import { makeToolProvider } from '../src/client/toolProvider'
 const realFetch = globalThis.fetch
 let calls: { url: string; body: any }[] = []
 let reply: { status: number; body: unknown } = { status: 200, body: {} }
+/** What `/genui/cached` answers: renders this machine already has on disk. */
+let onDisk: Record<string, unknown> = {}
 
 function stubFetch() {
   globalThis.fetch = (async (input: any, init?: any) => {
     const url = String(input)
-    calls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : undefined })
+    const body = init?.body ? JSON.parse(String(init.body)) : undefined
+    if (url.includes('/genui/cached')) {
+      const asked: string[] = Array.isArray(body?.keys) ? body.keys : []
+      const renders: Record<string, unknown> = {}
+      for (const key of asked) if (onDisk[key]) renders[key] = onDisk[key]
+      return new Response(JSON.stringify({ renders }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }
+    calls.push({ url, body })
     return new Response(JSON.stringify(reply.body), {
       status: reply.status,
       headers: { 'content-type': 'application/json' },
@@ -26,6 +38,7 @@ function stubFetch() {
 
 beforeEach(() => {
   calls = []
+  onDisk = {}
   stubFetch()
   // The provider resolves its routes against the page URL; Bun has no document.
   ;(globalThis as any).document = { baseURI: 'http://127.0.0.1:3080/' }
@@ -55,7 +68,9 @@ describe('makeToolProvider', () => {
     expect(first.url).toBe(`/genui/images/${encodeURIComponent(prompt)}.png`)
     expect(calls).toHaveLength(1)
     expect(calls[0].url).toContain('/genui/generate')
-    expect(calls[0].body).toEqual({ req: { prompt, lane: 'real' } })
+    expect(calls[0].body.req).toEqual({ prompt, lane: 'real' })
+    // The key travels with the request so the host can index the file it writes.
+    expect(typeof calls[0].body.key).toBe('string')
 
     const second = await provider.generate_image({ prompt, lane: 'real' })
     expect(second).toEqual(first)
@@ -172,7 +187,7 @@ describe('makeToolProvider', () => {
     const provider = makeToolProvider({ allowGeneration: true })
     await provider.edit_image({ prompt: 'make it night', source: 'genui_real_1.png' })
     expect(calls[0].url).toContain('/genui/edit')
-    expect(calls[0].body).toEqual({ req: { prompt: 'make it night', source: 'genui_real_1.png' } })
+    expect(calls[0].body.req).toEqual({ prompt: 'make it night', source: 'genui_real_1.png' })
   })
 
   test('a missing prompt fails before any request', async () => {
@@ -202,5 +217,47 @@ describe('makeToolProvider', () => {
 
   test('keys the render by the request, not the object identity', () => {
     expect(imageKey({ prompt: 'a', lane: 'real' })).toBe(imageKey({ prompt: ' a ', lane: 'real' }))
+  })
+})
+
+describe('recovering a render the browser cache lost', () => {
+  test('a stored turn shows the picture the host still has on disk', async () => {
+    // The key is what this request hashes to; the host recorded it when the picture was made.
+    const prompt = 'kept on the host'
+    const key = imageKey({ prompt, lane: 'real' })
+    onDisk[key] = { ...rendered(prompt), url: '/genui/images/kept.png', file: 'kept.png' }
+
+    const provider = makeToolProvider({ allowGeneration: false })
+    const result = await provider.generate_image({ prompt, lane: 'real' })
+
+    expect(result.url).toBe('/genui/images/kept.png')
+    expect(result.missing).toBeUndefined()
+    // Found on disk, not re-rendered.
+    expect(calls).toHaveLength(0)
+  })
+
+  test('a batch is recovered frame by frame from the host index', async () => {
+    const prompts = ['kept frame one', 'kept frame two']
+    const args = { prompts, lane: 'real' }
+    // The frames were rendered earlier under their own slot keys.
+    const { slotKey } = await import('../src/client/batches')
+    onDisk[slotKey(args, 0)] = {
+      ...rendered(prompts[0]),
+      url: '/genui/images/one.png',
+      file: 'one.png',
+    }
+    onDisk[slotKey(args, 1)] = {
+      ...rendered(prompts[1]),
+      url: '/genui/images/two.png',
+      file: 'two.png',
+    }
+
+    const provider = makeToolProvider({ allowGeneration: false })
+    const result = await provider.generate_image(args)
+    expect(result.images?.map((image) => image.url)).toEqual([
+      '/genui/images/one.png',
+      '/genui/images/two.png',
+    ])
+    expect(calls).toHaveLength(0)
   })
 })

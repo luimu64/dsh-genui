@@ -225,3 +225,35 @@ describe('live workflow changes', () => {
     expect((await service.health()).workflows).toEqual(['real', 'anime'])
   })
 })
+
+describe('the host render index', () => {
+  test('a render is remembered under the key the browser sent', async () => {
+    const key = '["real","indexed fox","fast",1,832,1216,null,null,null,null,null,1]'
+    const result = await service.generate({ lane: 'real', prompt: 'indexed fox' }, key)
+    expect(service.cached([key])[key]?.url).toBe(result.url)
+  })
+
+  test('a lookup of a key this machine never rendered is empty, never a render', async () => {
+    const before = fake.queueCount()
+    expect(service.cached(['["real","never made","fast",1,832,1216,null,null,null,null,null,1]'])).toEqual({})
+    expect(fake.queueCount()).toBe(before)
+  })
+
+  test('an absent or absurd key is not indexed', async () => {
+    const result = await service.generate({ lane: 'real', prompt: 'no key given' })
+    expect(result.url).toContain('/genui/images/')
+    expect(service.cached([''])).toEqual({})
+    expect(service.cached(['x'.repeat(5000)])).toEqual({})
+  })
+
+  test('the entry survives a restart and points at the file on disk', async () => {
+    const key = '["real","persisted fox","fast",1,832,1216,null,null,null,null,null,1]'
+    const result = await service.generate({ lane: 'real', prompt: 'persisted fox' }, key)
+    const restarted = createGenuiService(
+      testConfig({ comfyBase: fake.base, imagesDir: dir, pollMs: 10, minPngBytes: 4 }),
+    )
+    const hit = restarted.cached([key])[key]
+    expect(hit?.file).toBe(result.file)
+    expect(await readRender(dir, hit!.file)).toEqual(new Uint8Array([137, 80, 78, 71]))
+  })
+})

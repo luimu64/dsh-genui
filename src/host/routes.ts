@@ -137,8 +137,24 @@ export function registerRoutes(
     })
 
   return [
-    post('/genui/generate', (body) => service.generate(body as any)),
-    post('/genui/edit', (body) => service.edit(body as any)),
+    post('/genui/generate', (body) =>
+      service.generate(body as any, typeof body.key === 'string' ? body.key : undefined),
+    ),
+    post('/genui/edit', (body) =>
+      service.edit(body as any, typeof body.key === 'string' ? body.key : undefined),
+    ),
+
+    // A browser whose own cache lost an entry asks whether this machine still has the
+    // picture. Keys only: the answer is a lookup, never a render.
+    post('/genui/cached', async (body) => {
+      const asked = Array.isArray(body.keys)
+        ? body.keys.filter((key): key is string => typeof key === 'string')
+        : typeof body.key === 'string'
+          ? [body.key]
+          : [];
+      if (!asked.length) throw new HttpError(400, 'keys is required')
+      return { renders: service.cached(asked) }
+    }),
 
     ctx.webServer.register({
       kind: 'exact',

@@ -226,6 +226,45 @@ export function rememberImage(key: string, value: Rendered) {
   persistImage(key, value);
 }
 
+/** Keys the host has already been asked about this session, hit or miss. */
+const askedHost = new Set<string>();
+
+/**
+ * Ask the machine that rendered a picture whether it still has it.
+ *
+ * The IndexedDB store belongs to one browser profile on one origin, so clearing site data,
+ * opening the harness under another host name, or losing the profile turned every stored
+ * answer into "not saved on this machine" while the PNG sat in the images directory. The
+ * host keeps a key → file map, and this is the one request that turns a cache miss back into
+ * a picture. A miss is remembered for the session: this path asks about the disk, never the
+ * GPU.
+ */
+export async function lookupRenderOnHost(
+  keys: string[],
+): Promise<Record<string, Rendered> | null> {
+  const wanted = keys.filter((key) => key && !askedHost.has(key));
+  if (!wanted.length) return null;
+  for (const key of wanted) askedHost.add(key);
+  try {
+    const res = await fetch(new URL("/genui/cached", document.baseURI), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ keys: wanted.slice(0, 16) }),
+    });
+    if (!res.ok) return null;
+    const json = (await res.json().catch(() => null)) as { renders?: Record<string, Rendered> } | null;
+    const renders = json?.renders ?? {};
+    for (const [key, render] of Object.entries(renders)) {
+      if (!render || typeof render.url !== "string" || !render.url) continue;
+      rememberImage(key, render);
+    }
+    return renders;
+  } catch {
+    // Offline, a restarted harness without the route, a sandbox: a cache miss stays a miss.
+    return null;
+  }
+}
+
 /**
  * What is already stored for this request, if anything — for *displaying* a picture the
  * app has, never for deciding whether to make one.
