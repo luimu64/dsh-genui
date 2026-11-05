@@ -635,6 +635,23 @@ body {
   outline-offset: 2px;
 }
 
+/* Where the open picture sits in its batch. Tabular figures, so the bar does not twitch
+   between "9 / 10" and "10 / 10". */
+[data-genui-overlay] .genimg-overlay-count {
+  flex: 0 0 auto;
+  color: var(--genui-fg-dim);
+  font: var(--genui-label);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The step buttons are glyphs, so they get a square box the size of a text button. */
+[data-genui-overlay] .genimg-overlay-bar button.genimg-overlay-step {
+  width: 28px;
+  padding: 0;
+  font-size: 18px;
+  line-height: 1;
+}
+
 /* Reduced-motion rule, scoped to the same two roots. */
 @media (prefers-reduced-motion: reduce) {
   .genui-root *,

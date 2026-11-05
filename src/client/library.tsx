@@ -1,4 +1,4 @@
-import { useCallback, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { defineComponent } from "@openuidev/react-lang";
 import { openuiLibrary } from "@openuidev/react-ui";
 import { Button } from "@deepseek-ai/dsh-client-ui-primitives";
@@ -32,6 +32,9 @@ function downloadName(prompt: string, suffix = "") {
   return `${safeName(prompt)}${suffix}-${new Date().toISOString().slice(0, 10)}.png`;
 }
 
+/** One picture the viewer can step through. */
+type ViewerFrame = { url: string; prompt: string };
+
 /**
  * The fullscreen viewer is plain DOM, not React state. These components re-render on every
  * streamed chunk of the answer, and a state-held overlay was torn down and rebuilt on each
@@ -49,11 +52,51 @@ function downloadName(prompt: string, suffix = "") {
 let viewer: HTMLDivElement | null = null;
 let viewerUrl = "";
 let viewerReturnFocus: HTMLElement | null = null;
+/**
+ * The frames the open viewer can step through, behind a getter rather than an array: a
+ * batch that is still rendering gains its remaining pictures while the viewer stays open,
+ * and the set is read again on every step, so navigation never walks a stale list.
+ */
+let viewerFrames: () => ViewerFrame[] = () => [];
+let viewerPaint: ((index: number) => void) | null = null;
+
+function stepViewer(delta: number) {
+  if (!viewerPaint) return;
+  const frames = viewerFrames();
+  if (frames.length < 2) return;
+  // Found by url, not remembered as an index: a batch fills in out of order, so the same
+  // index can mean a different picture a second later.
+  const at = frames.findIndex((frame) => frame.url === viewerUrl);
+  const from = at < 0 ? 0 : at;
+  viewerPaint((from + delta + frames.length) % frames.length);
+}
+
+/**
+ * Repaint the open viewer from its frame list. A batch that is still rendering adds its
+ * remaining pictures underneath an open viewer, and the counter and arrows have to keep up
+ * without the picture being reopened.
+ */
+function refreshViewer() {
+  if (!viewer || !viewerPaint) return;
+  const at = viewerFrames().findIndex((frame) => frame.url === viewerUrl);
+  if (at >= 0) viewerPaint(at);
+}
 
 function onViewerKey(e: KeyboardEvent) {
   if (e.key === "Escape") {
     e.preventDefault();
     closeViewer();
+    return;
+  }
+  // A batch is one viewer: the arrows walk it instead of going back to the grid.
+  if (e.key === "ArrowLeft") {
+    e.preventDefault();
+    stepViewer(-1);
+    return;
+  }
+  if (e.key === "ArrowRight") {
+    e.preventDefault();
+    stepViewer(1);
   }
 }
 
@@ -62,6 +105,8 @@ function closeViewer() {
   if (!overlay) return;
   viewer = null;
   viewerUrl = "";
+  viewerFrames = () => [];
+  viewerPaint = null;
   window.removeEventListener("keydown", onViewerKey);
   // Removed immediately: there is no exit animation to wait for, and a held
   // dark layer over a still-visible page is exactly the kind of half-faded
@@ -75,11 +120,21 @@ function closeViewer() {
 async function viewFullSize(
   url: string,
   prompt: string,
-  action?: { label: string; run: () => void },
+  frames?: () => ViewerFrame[],
+  action?: (frame: ViewerFrame) => { label: string; run: () => void },
 ) {
-  // A second click on the same picture (or on the fullscreen button while it is open) must
-  // not rebuild the layer: teardown + rebuild in one frame is exactly the flash.
-  if (viewer && viewerUrl === url) return;
+  // Clicking a picture of the set that is already open steps to it: a second click on the
+  // same picture (or on the fullscreen button while it is open) must not rebuild the layer,
+  // because teardown + rebuild in one frame is exactly the flash.
+  if (viewer) {
+    const open = frames ? frames() : [];
+    const at = open.findIndex((frame) => frame.url === url);
+    if (at >= 0) {
+      viewerPaint?.(at);
+      return;
+    }
+    if (viewerUrl === url) return;
+  }
   closeViewer();
 
   const overlay = document.createElement("div");
@@ -92,31 +147,68 @@ async function viewFullSize(
   overlay.setAttribute("aria-label", prompt);
 
   const img = document.createElement("img");
-  img.alt = prompt;
-  img.src = url;
   img.decoding = "sync";
 
   const bar = document.createElement("div");
   bar.className = "genimg-overlay-bar";
   const label = document.createElement("span");
   label.className = "genimg-overlay-prompt";
-  label.textContent = prompt;
-  bar.append(label);
-  if (action) {
+  const counter = document.createElement("span");
+  counter.className = "genimg-overlay-count";
+
+  const step = (delta: number, text: string, name: string) => {
     const button = document.createElement("button");
-    button.textContent = action.label;
-    button.addEventListener("click", action.run);
-    bar.append(button);
-  }
+    button.className = "genimg-overlay-step";
+    button.textContent = text;
+    button.title = name;
+    button.setAttribute("aria-label", name);
+    button.addEventListener("click", () => stepViewer(delta));
+    return button;
+  };
+  const prev = step(-1, "‹", "Previous image");
+  const next = step(1, "›", "Next image");
+
+  const save = document.createElement("button");
+  save.className = "genimg-overlay-save";
+  save.hidden = !action;
+
   const close = document.createElement("button");
   close.textContent = "Close";
   close.setAttribute("aria-label", "Close full size view");
-  bar.append(close);
+  close.addEventListener("click", closeViewer);
+
+  bar.append(label, counter, prev, next, save, close);
+
+  /** Put frame `index` on screen. Everything on the bar follows the picture, not the click. */
+  const paint = (index: number) => {
+    const framesNow = viewerFrames();
+    const frame = framesNow[index];
+    if (!frame) return;
+    viewerUrl = frame.url;
+    img.src = frame.url;
+    img.alt = frame.prompt;
+    label.textContent = frame.prompt;
+    overlay.setAttribute("aria-label", frame.prompt);
+    // One picture is not a set: no arrows, no "1 / 1".
+    const many = framesNow.length > 1;
+    counter.hidden = !many;
+    prev.hidden = !many;
+    next.hidden = !many;
+    counter.textContent = many ? `${index + 1} / ${framesNow.length}` : "";
+    const bound = action?.(frame);
+    if (bound) {
+      save.textContent = bound.label;
+      save.onclick = bound.run;
+    }
+  };
+
+  viewerFrames = frames ?? (() => [{ url, prompt }]);
+  viewerPaint = paint;
+  paint(Math.max(0, viewerFrames().findIndex((frame) => frame.url === url)));
 
   for (const el of [img, bar]) el.addEventListener("click", (e) => e.stopPropagation());
   overlay.append(img, bar);
   overlay.addEventListener("click", closeViewer);
-  close.addEventListener("click", closeViewer);
 
   // Wait for the bitmap, but never let a decode failure keep the viewer shut.
   try {
@@ -129,7 +221,6 @@ async function viewFullSize(
   window.addEventListener("keydown", onViewerKey);
   document.body.append(overlay);
   viewer = overlay;
-  viewerUrl = url;
   close.focus({ preventScroll: true });
 }
 
@@ -151,6 +242,7 @@ function GenFigure({
   prompt,
   showCaption = true,
   tile = false,
+  frames,
 }: {
   src: string;
   caption: string;
@@ -158,6 +250,8 @@ function GenFigure({
   showCaption?: boolean;
   /** Fill a fixed box owned by the grid cell instead of sizing to the picture. */
   tile?: boolean;
+  /** The set this picture belongs to, so the full size view can walk it. */
+  frames?: () => ViewerFrame[];
 }) {
   const [note, setNote] = useState("");
 
@@ -172,17 +266,25 @@ function GenFigure({
     }
   }, [src, prompt]);
 
+  // The viewer's download button is bound per frame: stepping to another picture of the set
+  // must offer that picture, not the one the viewer was opened on.
+  const open = (frameSrc: string, frameCaption: string) =>
+    viewFullSize(frameSrc, frameCaption, frames, (frame) => ({
+      label: "Download",
+      run: () => void download(frame.url, downloadName(frame.prompt)),
+    }));
+
   const frame = (
     <div className={tile ? "genimg-frame is-tile" : "genimg-frame"}>
       <img
         src={src}
         alt={caption}
-        onClick={() => viewFullSize(src, caption)}
+        onClick={() => open(src, caption)}
         title="Click to view full size"
       />
       <div className="genimg-actions">
         <button
-          onClick={() => viewFullSize(src, caption, { label: "Download", run: () => void save() })}
+          onClick={() => open(src, caption)}
           title="View full size"
           aria-label="View full size"
         >
@@ -336,6 +438,25 @@ const GenImageSet = defineComponent({
     const failed = slots.filter((slot) => !slot.url && slot.error);
     const gone = slots.filter((slot) => !slot.url && slot.missing);
 
+    // The frames the full size view walks. Held in a ref and read through a getter so a
+    // picture that lands while the viewer is open joins the walk without closing it.
+    const liveSlots = useRef(slots);
+    useEffect(() => {
+      liveSlots.current = slots;
+      // A frame that landed while the full size view is open joins the walk, and the
+      // counter beside the picture moves with it.
+      refreshViewer();
+    }, [slots]);
+    const frames = useCallback(
+      () =>
+        liveSlots.current.flatMap((slot, i) =>
+          slot.url
+            ? [{ url: slot.url, prompt: slot.prompt ?? `${props.prompt} (${i + 1})` }]
+            : [],
+        ),
+      [props.prompt],
+    );
+
     const save = useCallback(async () => {
       setNote("saving…");
       try {
@@ -383,6 +504,7 @@ const GenImageSet = defineComponent({
                   prompt={slot.prompt ?? `${props.prompt} (${i + 1})`}
                   showCaption={false}
                   tile
+                  frames={frames}
                 />
               ) : slot.missing ? (
                 <MissingFrame
@@ -476,6 +598,10 @@ const ImageGalleryCards = defineComponent({
     if (!list.length) {
       return <ImagePlaceholder height={240}>rendering…</ImagePlaceholder>;
     }
+    const captionOf = (img: { src: string; alt?: string; details?: string }, i: number) =>
+      img.alt ?? img.details ?? `Generated image ${i + 1}`;
+    const frames = () =>
+      list.map((img, i) => ({ url: img.src, prompt: captionOf(img, i) }));
     return (
       <div
         style={{
@@ -485,8 +611,16 @@ const ImageGalleryCards = defineComponent({
         }}
       >
         {list.map((img, i) => {
-          const caption = img.alt ?? img.details ?? `Generated image ${i + 1}`;
-          return <GenFigure key={i} src={img.src} caption={caption} prompt={caption} />;
+          const caption = captionOf(img, i);
+          return (
+            <GenFigure
+              key={i}
+              src={img.src}
+              caption={caption}
+              prompt={caption}
+              frames={frames}
+            />
+          );
         })}
       </div>
     );
