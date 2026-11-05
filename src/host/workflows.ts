@@ -38,6 +38,8 @@ import animeMiaoGraph from '../../assets/anime-miao.json'
 import animeDasiwaGraph from '../../assets/anime-dasiwa.json'
 import realGraph from '../../assets/real.json'
 import realHighGraph from '../../assets/real-hq.json'
+import mossFastGraph from '../../assets/moss-fast.json'
+import mossHighGraph from '../../assets/moss-high.json'
 import editGraph from '../../assets/edit.json'
 
 export interface GraphNode {
@@ -202,6 +204,39 @@ const ANIME: BuiltinInput = {
   },
 }
 
+/**
+ * The caption route on the weights `real` runs: the undistilled SFT checkpoint at the model
+ * card's own settings instead of the four-step LoRA, with lettering left alone. Slow on
+ * purpose. The reason to reach for it is a long prompt, a laid-out scene, or text the picture
+ * has to spell.
+ */
+const MOSS: BuiltinInput = {
+  id: 'moss',
+  label: 'MOSS-Image (SFT)',
+  description:
+    'The 5B caption model the real lane runs, without its four-step LoRA: 25 steps at CFG 2.5 fast, 50 at CFG 3 with skip-layer guidance for high. Strong at long prompts, quoted lettering and layout.',
+  promptFile: 'prompt-moss.md',
+  fast: spec(mossFastGraph, {
+    suffix: 'moss',
+    width: 832,
+    height: 1216,
+    steps: 25,
+    cfg: 2.5,
+    carriesStyle: false,
+    allowsText: true,
+  }),
+  high: spec(mossHighGraph, {
+    suffix: 'moss_hq',
+    width: 992,
+    height: 1504,
+    steps: 50,
+    cfg: 3,
+    carriesStyle: false,
+    allowsText: true,
+  }),
+  presets: {},
+}
+
 /** The reference-conditioned edit lane. It is a tool, not a selectable workflow. */
 export const EDIT_MODEL: WorkflowModel = spec(editGraph, {
   suffix: 'edit',
@@ -213,7 +248,7 @@ export const EDIT_MODEL: WorkflowModel = spec(editGraph, {
   allowsText: false,
 })
 
-const BUILTINS: BuiltinInput[] = [REAL, ANIME]
+const BUILTINS: BuiltinInput[] = [REAL, ANIME, MOSS]
 
 // ---------------------------------------------------------------------------
 // Assets

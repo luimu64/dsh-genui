@@ -102,8 +102,10 @@ A single-image request is still one job, unchanged.
 
 A **workflow** is a lane plus everything it drags in: one or two graphs (fast/high), the
 settings they are tuned for, optional preset graphs, and an optional prompt section. The
-bundle ships two — `real` and `anime` — and only `real` is enabled by default: one caption
-model, two graphs, nothing else to install, no extra prompt tokens.
+bundle ships three — `real`, `anime` and `moss` — and only `real` is enabled by default: one
+caption model, two graphs, nothing else to install, no extra prompt tokens. The other two are
+opt-in, in Settings or in the profile, because they cost either a second checkpoint or a much
+longer wait.
 
 **Adding one is data, not code.** Drop a definition and its graph into the workflow directory
 (`$DSH_HOME/genui/workflows`, otherwise `~/.local/share/dsh-genui/workflows`), and it appears
@@ -124,7 +126,7 @@ without hunting for the config.
 
 ```yaml
 # profile cordis.patch.yml, under the dsh-genui row
-workflows: [real, anime]
+workflows: [real, anime, moss]
 ```
 
 The list only exists where the client composes the settings service (the stock web profile
@@ -134,6 +136,14 @@ What `anime` brings: `assets/anime.json`, `assets/anime-hq.json` and the preset 
 `anime` lane in the tool surface, booru-tag prompt conventions, and `assets/prompt-anime.md` —
 a section the host appends to the system prompt only when the workflow is on. A default
 install never pays for it, in tokens or in prompt drift.
+
+What `moss` brings: `assets/moss-fast.json` and `assets/moss-high.json` — the same 5B weights
+`real` runs, on the undistilled SFT checkpoint instead of the four-step LoRA, at the model
+card's own settings (25 steps at CFG 2.5 with `er_sde`; 50 at CFG 3 with euler and
+skip-layer guidance on layer 22). It sets `allowsText`, so the no-text negative block is not
+applied and quoted lettering survives, and `assets/prompt-moss.md` teaches the model to
+prompt it as a caption rather than a tag line. Reach for it for a long prompt, a laid-out
+scene, or a picture that has to spell something; reach for `real` for anything quick.
 
 `lane` picks the workflow, `quality` picks how much compute to spend on it, and two more
 knobs sit on top:

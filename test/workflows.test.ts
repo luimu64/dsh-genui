@@ -41,11 +41,12 @@ function writeWorkflow(dir: string, body: string, name = 'sketch.json'): string 
 describe('built-ins', () => {
   test('the shipped workflows are always present', () => {
     const registry = createWorkflowRegistry({ dir: '/nonexistent/genui-workflows' })
-    expect(registry.list().map((workflow) => workflow.id)).toEqual(['real', 'anime'])
+    expect(registry.list().map((workflow) => workflow.id)).toEqual(['real', 'anime', 'moss'])
     const real = registry.get('real')
     expect(real?.builtin).toBe(true)
     expect(real?.high).not.toBe(real?.fast)
     expect(Object.keys(registry.get('anime')?.presets ?? {})).toEqual(['miaoharem', 'dasiwa'])
+    expect(Object.keys(registry.get('moss')?.presets ?? {})).toEqual([])
   })
 
   test('the anime workflow carries its prompt section', () => {
@@ -54,6 +55,22 @@ describe('built-ins', () => {
     expect(prompts).toHaveLength(1)
     expect(prompts[0]).toContain('Optional workflow: anime')
     expect(registry.prompts(['real'])).toEqual([])
+  })
+
+  test('the moss workflow is the caption route: two graphs, no presets, its own section', () => {
+    const registry = createWorkflowRegistry({ dir: '/nonexistent/genui-workflows' })
+    const moss = registry.get('moss')
+    expect(moss?.builtin).toBe(true)
+    expect(moss?.high).not.toBe(moss?.fast)
+    expect(moss?.fast.steps).toBe(25)
+    expect(moss?.high.steps).toBe(50)
+    expect(moss?.fast.allowsText).toBe(true)
+    // Same weights as real, so the fast frame is the photograph lane's model.
+    const real = registry.get('real')
+    expect(moss?.fast.graph['1'].inputs.unet_name).toBe(real?.fast.graph['1'].inputs.unet_name)
+    const prompts = registry.prompts(['real', 'moss'])
+    expect(prompts).toHaveLength(1)
+    expect(prompts[0]).toContain('Optional workflow: moss')
   })
 })
 
@@ -113,7 +130,7 @@ describe('a workflow from a definition file', () => {
     const warnings: string[] = []
     writeFileSync(join(dir, 'broken.json'), '{ not json')
     const registry = createWorkflowRegistry({ dir, log: { warn: (message) => warnings.push(message) } })
-    expect(registry.list().map((workflow) => workflow.id)).toEqual(['real', 'anime'])
+    expect(registry.list().map((workflow) => workflow.id)).toEqual(['real', 'anime', 'moss'])
     expect(warnings.join('\n')).toContain('broken.json')
   })
 

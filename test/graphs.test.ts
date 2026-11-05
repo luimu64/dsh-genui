@@ -13,6 +13,7 @@ import { createWorkflowRegistry } from '../src/host/workflows'
 const registry = createWorkflowRegistry({ dir: '/nonexistent/genui-workflows' })
 const real = registry.get('real')!
 const anime = registry.get('anime')!
+const moss = registry.get('moss')!
 
 describe('buildGraph', () => {
   test('real fast uses 4 steps, cfg 1, 832x1216, seed in the prefix', () => {
@@ -68,6 +69,26 @@ describe('buildGraph', () => {
     expect(graph['4'].inputs.text).toBe('')
     const asked = buildGraph(real.fast, { prompt: 'x', negative: 'nsfw', count: 1 }, 7)
     expect(asked['4'].inputs.text).toBe('nsfw')
+  })
+
+  test('moss fast is the template setting: 25 steps, cfg 2.5, er_sde', () => {
+    const graph = buildGraph(moss.fast, { lane: 'moss', prompt: 'a shop sign reading "OPEN"', count: 1 }, 11)
+    expect(graph['6'].inputs.steps).toBe(25)
+    expect(graph['6'].inputs.cfg).toBe(2.5)
+    expect(graph['6'].inputs.sampler_name).toBe('er_sde')
+    expect(graph['9'].inputs.filename_prefix).toBe(`${dateFolder()}/genui_moss_11`)
+  })
+
+  test('moss high is the model card setting, with skip-layer guidance on layer 22', () => {
+    const graph = buildGraph(moss.high, { lane: 'moss', quality: 'high', prompt: 'x', count: 1 }, 11)
+    expect(graph['6'].inputs.steps).toBe(50)
+    expect(graph['6'].inputs.cfg).toBe(3)
+    expect(graph['6'].inputs.sampler_name).toBe('euler')
+    expect(graph['6'].inputs.model).toEqual(['11', 0])
+    expect(graph['11'].class_type).toBe('SkipLayerGuidanceDiTSimple')
+    expect(graph['11'].inputs.single_layers).toBe('22')
+    expect(graph['5'].inputs.width).toBe(992)
+    expect(graph['5'].inputs.height).toBe(1504)
   })
 
   test('count clamps to maxBatch', () => {
