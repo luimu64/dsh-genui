@@ -21,7 +21,7 @@
   "4": {
     "class_type": "CLIPTextEncode",
     "inputs": {
-      "text": "worst quality, low quality, score_1, score_2, score_3, artist name, blurry, jpeg artifacts, chromatic aberration",
+      "text": "worst quality, low quality, score_1, score_2, score_3, artist name, blurry, jpeg artifacts, chromatic aberration, text, watermark, signature, logo, username, web address, speech bubble, lettering",
       "clip": ["2", 0]
     }
   },

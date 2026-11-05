@@ -72,7 +72,7 @@ The mutator addresses nodes by id, so a template must keep this skeleton (full t
 | Node | Role | Written by code |
 |---|---|---|
 | `3` | positive prompt | prompt, appended to the template prefix when `carriesStyle` |
-| `4` | negative prompt | `negative`, and the `nsfw` strip |
+| `4` | negative prompt | `negative`, the `nsfw` strip, and the `TEXT_NEGATIVES` block unless the model sets `allowsText` |
 | `5` | empty latent | width, height, batch size |
 | `6` | base KSampler | seed, steps, cfg |
 | `7` | VAEDecode | rewired only for a hires pass |

@@ -24,7 +24,7 @@ The mutator addresses nodes by id, so a template must keep these:
 | `1` | model loader (UNET / checkpoint) | never — it is the identity of the graph |
 | `2` | text-encoder loader | never |
 | `3` | positive `CLIPTextEncode` | the prompt (appended to the template's prefix when `carriesStyle`) |
-| `4` | negative `CLIPTextEncode` | `negative`, and the `nsfw` strip |
+| `4` | negative `CLIPTextEncode` | `negative`, the `nsfw` strip, and the text block unless `allowsText` |
 | `5` | empty latent | `width`, `height`, `batch_size` |
 | `6` | base `KSampler` | `seed`, `steps`, `cfg` |
 | `7` | `VAEDecode` | its `samples` input, when the hires pass runs |
@@ -44,15 +44,21 @@ the only code that touches it.
 
 ## Settings that follow the weights
 
-A definition carries `width`, `height`, `steps`, `cfg` and `carriesStyle` per graph. They are
+A definition carries `width`, `height`, `steps`, `cfg`, `carriesStyle` and `allowsText` per graph. They are
 defaults, not laws: a distilled four-step model wants `cfg: 1`; an undistilled one wants tens
-of steps and a real CFG. Two rules are enforced on top of them:
+of steps and a real CFG. Three rules are enforced on top of them:
 
 - an explicit `steps` can never drop a `high` render below `HIGH_MIN_STEPS` (20), and an
   explicit `cfg` is clamped to `[HIGH_MIN_CFG, MAX_CFG]` — the floor is what undistilled
   checkpoints need;
 - `carriesStyle: true` appends the prompt after the graph's own positive prefix, which is what
-  booru-tag models expect. Caption models want the sentence verbatim, so they set it false.
+  booru-tag models expect. Caption models want the sentence verbatim, so they set it false;
+- `allowsText` defaults to false. Unless it is true, every member of `TEXT_NEGATIVES` —
+  `watermark`, `signature`, `text`, `logo`, `username`, `patreon username`, `web address`,
+  `speech bubble`, `lettering`, `typography`, `stamp`, the language tags — is appended to node
+  `4` after the request's own `negative` and the `nsfw` strip have been applied, so no caller
+  can lose them. Only the moss caption models set it true: a photograph may legitimately show
+  a sign that reads something.
 
 A workflow that defines one graph runs it for both qualities; its results report
 `quality: "fast"`, because that is what actually ran.

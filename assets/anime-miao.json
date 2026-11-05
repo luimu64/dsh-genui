@@ -24,7 +24,7 @@
   "4": {
     "class_type": "CLIPTextEncode",
     "inputs": {
-      "text": "worst quality, low quality, bad anatomy, bad hands, extra fingers, extra limbs, missing fingers, watermark, signature, text, jpeg artifacts",
+      "text": "worst quality, low quality, bad anatomy, bad hands, extra fingers, extra limbs, missing fingers, watermark, signature, text, logo, username, web address, speech bubble, lettering, jpeg artifacts",
       "clip": ["2", 0]
     }
   },

@@ -61,6 +61,11 @@ export interface WorkflowModel {
    * whose template carries a quality/style block; false for caption models.
    */
   carriesStyle: boolean
+  /**
+   * Let the model letter the picture. Only the moss caption models want it: every other
+   * workflow gets the TEXT_NEGATIVES block appended to its negative on every render.
+   */
+  allowsText: boolean
 }
 
 export interface WorkflowDefinition {
@@ -136,6 +141,7 @@ const REAL: BuiltinInput = {
     steps: 4,
     cfg: 1,
     carriesStyle: false,
+    allowsText: true,
   }),
   high: spec(realHighGraph, {
     suffix: 'real_hq',
@@ -144,6 +150,7 @@ const REAL: BuiltinInput = {
     steps: 50,
     cfg: 3,
     carriesStyle: false,
+    allowsText: true,
   }),
   presets: {},
 }
@@ -162,6 +169,7 @@ const ANIME: BuiltinInput = {
     steps: 8,
     cfg: 1,
     carriesStyle: true,
+    allowsText: false,
   }),
   high: spec(animeHighGraph, {
     suffix: 'anime_hq',
@@ -170,6 +178,7 @@ const ANIME: BuiltinInput = {
     steps: 30,
     cfg: 5,
     carriesStyle: true,
+    allowsText: false,
   }),
   presets: {
     miaoharem: spec(animeMiaoGraph, {
@@ -179,6 +188,7 @@ const ANIME: BuiltinInput = {
       steps: 30,
       cfg: 4.5,
       carriesStyle: true,
+      allowsText: false,
     }),
     dasiwa: spec(animeDasiwaGraph, {
       suffix: 'anima_dasiwa',
@@ -187,6 +197,7 @@ const ANIME: BuiltinInput = {
       steps: 30,
       cfg: 4.5,
       carriesStyle: true,
+      allowsText: false,
     }),
   },
 }
@@ -199,6 +210,7 @@ export const EDIT_MODEL: WorkflowModel = spec(editGraph, {
   steps: 4,
   cfg: 1,
   carriesStyle: false,
+  allowsText: false,
 })
 
 const BUILTINS: BuiltinInput[] = [REAL, ANIME]
@@ -236,6 +248,8 @@ interface DefinitionFile {
   description?: unknown
   suffix?: unknown
   carriesStyle?: unknown
+  /** Default false: a dropped-in workflow suppresses lettering unless it opts in. */
+  allowsText?: unknown
   graphs?: { fast?: unknown; high?: unknown }
   defaults?: {
     width?: unknown
@@ -290,6 +304,7 @@ function loadDefinition(file: string): WorkflowDefinition {
   const highPath = raw.graphs?.high === undefined ? fastPath : graphName(raw.graphs.high, 'high')
   const suffix = typeof raw.suffix === 'string' && raw.suffix.trim() ? raw.suffix.trim() : id
   const carriesStyle = raw.carriesStyle === true
+  const allowsText = raw.allowsText === true
   const width = num(raw.defaults?.width, 832)
   const height = num(raw.defaults?.height, 1216)
 
@@ -301,6 +316,7 @@ function loadDefinition(file: string): WorkflowDefinition {
     steps: perQuality(extra.steps ?? raw.defaults?.steps, quality, quality === 'high' ? 30 : 4),
     cfg: perQuality(extra.cfg ?? raw.defaults?.cfg, quality, quality === 'high' ? 3 : 1),
     carriesStyle,
+    allowsText,
   })
 
   const fastGraph = readGraph(fastPath)

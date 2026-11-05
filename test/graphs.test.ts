@@ -41,6 +41,35 @@ describe('buildGraph', () => {
     expect(graph['4'].inputs.text).not.toContain('score_1')
   })
 
+  test('every non-moss workflow carries the text block in its negative', () => {
+    const graph = buildGraph(anime.fast, { lane: 'anime', prompt: '1girl', count: 1 }, 7)
+    expect(graph['4'].inputs.text).toContain('watermark')
+    expect(graph['4'].inputs.text).toContain('signature')
+    expect(graph['4'].inputs.text).toContain('speech bubble')
+  })
+
+  test('a request negative does not remove the text block', () => {
+    const graph = buildGraph(
+      anime.fast,
+      { lane: 'anime', prompt: '1girl', negative: 'blurry, low quality', count: 1 },
+      7,
+    )
+    expect(graph['4'].inputs.text.startsWith('blurry, low quality')).toBe(true)
+    expect(graph['4'].inputs.text).toContain('watermark')
+  })
+
+  test('nsfw keeps the text block', () => {
+    const graph = buildGraph(anime.fast, { lane: 'anime', prompt: '1girl, nude', nsfw: true, count: 1 }, 7)
+    expect(graph['4'].inputs.text).toContain('watermark')
+  })
+
+  test('moss is allowed to letter the picture, so its negative stays untouched', () => {
+    const graph = buildGraph(real.fast, { prompt: 'a shop sign reading OPEN', count: 1 }, 7)
+    expect(graph['4'].inputs.text).toBe('')
+    const asked = buildGraph(real.fast, { prompt: 'x', negative: 'nsfw', count: 1 }, 7)
+    expect(asked['4'].inputs.text).toBe('nsfw')
+  })
+
   test('count clamps to maxBatch', () => {
     const graph = buildGraph(real.fast, { prompt: 'x', count: 99 }, 1)
     expect(graph['5'].inputs.batch_size).toBe(MAX_BATCH)

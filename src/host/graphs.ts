@@ -143,6 +143,55 @@ export function effectiveCount(req: GenRequest, maxBatch = MAX_BATCH): number {
   return Math.min(Math.max(asked, 1), Math.max(1, maxBatch))
 }
 
+/**
+ * What a workflow that does not allow lettering keeps in its negative, always.
+ *
+ * Booru-tag and anime checkpoints invent signatures, watermarks and captions out of the
+ * training data; a request that carries its own `negative` replaces node 4 wholesale, so the
+ * block is re-applied after the override rather than trusted to the template.
+ */
+export const TEXT_NEGATIVES: readonly string[] = [
+  'text',
+  'watermark',
+  'signature',
+  'artist name',
+  'artist logo',
+  'logo',
+  'username',
+  'patreon username',
+  'web address',
+  'url',
+  'english text',
+  'chinese text',
+  'japanese text',
+  'korean text',
+  'caption',
+  'subtitles',
+  'speech bubble',
+  'lettering',
+  'typography',
+  'stamp',
+  'date',
+  'copyright name',
+]
+
+/** Append every missing member of TEXT_NEGATIVES to the negative node, keeping duplicates out. */
+export function ensureTextNegatives(graph: Graph): void {
+  const negative = String(graph['4']?.inputs?.text ?? '')
+  const tokens = negative
+    .split(',')
+    .map((token) => token.trim())
+    .filter((token) => token.length > 0)
+  const present = new Set(tokens.map((token) => token.toLowerCase()))
+  for (const token of TEXT_NEGATIVES) {
+    if (!present.has(token)) {
+      tokens.push(token)
+      present.add(token)
+    }
+  }
+  graph['4'].inputs.text = tokens.join(', ')
+}
+
 /** Drop negative tokens that are content judgements rather than quality ones. */
 export function stripContentNegatives(graph: Graph): void {
   const negative = String(graph['4']?.inputs?.text ?? '')
@@ -172,6 +221,8 @@ export function buildGraph(
 
   if (req.nsfw) stripContentNegatives(graph)
   if (typeof req.negative === 'string') graph['4'].inputs.text = req.negative
+  // Text is banned for every workflow that does not ask for it, whatever the request said.
+  if (!model.allowsText) ensureTextNegatives(graph)
 
   const defaults = defaultsFor(model, filePrefix)
   const width = req.width ?? defaults.width

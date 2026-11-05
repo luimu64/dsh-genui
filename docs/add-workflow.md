@@ -49,6 +49,7 @@ inside the bundle. The first is the usual case.
 | `description` | no | one line under the label |
 | `suffix` | no | file-name stem: renders land as `<filePrefix>_<suffix>_<seed>.png`. Defaults to the id |
 | `carriesStyle` | no | append the prompt after the graph's own positive prefix (booru-tag models) instead of replacing it |
+| `allowsText` | no | let the model letter the picture. Default false: the `TEXT_NEGATIVES` block is appended to node `4` on every render. Only the moss caption models set it true |
 | `graphs.fast` | yes | a JSON file name in the same folder |
 | `graphs.high` | no | a second graph. Omitted means `high` mirrors `fast` and the result reports `quality: "fast"` |
 | `defaults.width` / `.height` | no | 832 / 1216 |
