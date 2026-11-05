@@ -124,6 +124,23 @@ describe('makeToolProvider', () => {
     expect(result.images?.map((image) => image.index)).toEqual([0, 1, 2])
   })
 
+  test('a prompt list alone is a valid batch, no shared prompt needed', async () => {
+    // This is how the model actually wrote it: prompts only. Demanding a single prompt
+    // failed the query, and every tile painted "could not render this picture".
+    reply = { status: 200, body: rendered('listed only') }
+    const provider = makeToolProvider({ allowGeneration: true })
+    const prompts = ['a fox in snow', 'a fox on sand']
+    const result = await provider.generate_image({ prompts, lane: 'real' })
+    expect(result.images).toHaveLength(2)
+    expect(result.prompt).toBe('a fox in snow')
+  })
+
+  test('no prompt and no prompt list still fails before any request', async () => {
+    const provider = makeToolProvider({ allowGeneration: true })
+    await expect(provider.generate_image({ lane: 'real' })).rejects.toThrow('needs a prompt')
+    expect(calls).toHaveLength(0)
+  })
+
   test('a stored batch is a hole per frame, never a new queue', async () => {
     const provider = makeToolProvider({ allowGeneration: false })
     const result = await provider.generate_image({ prompt: 'stored batch', count: 2 })

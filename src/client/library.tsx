@@ -401,7 +401,11 @@ const GenImageSet = defineComponent({
                   could not render this picture
                 </div>
               ) : (
-                <ImagePlaceholder height="100%">rendering…</ImagePlaceholder>
+                // A batch is not its query: the query resolved with slots, and each frame
+                // reports through its own status. Never paint the whole grid broken.
+                <ImagePlaceholder height="100%" failed={false}>
+                  rendering…
+                </ImagePlaceholder>
               )}
             </div>
           ))}
@@ -523,7 +527,7 @@ export const genuiPromptOptions = {
           prompt: {
             type: "string",
             description:
-              "One natural-language sentence: subject, setting, light, and a lens if it helps.",
+              "One natural-language sentence: subject, setting, light, and a lens if it helps. Optional when prompts lists one per picture.",
           },
           lane: {
             type: "string",
@@ -564,7 +568,9 @@ export const genuiPromptOptions = {
           width: { type: "number", description: "Defaults to 832 (992 on the high real lane)." },
           height: { type: "number", description: "Defaults to 1216 (1504 on the high real lane)." },
         },
-        required: ["prompt"],
+        // Either prompt or prompts: a batch that lists one prompt per picture has no
+        // single prompt to repeat, and requiring one failed the query before it queued.
+        required: [],
       },
       outputSchema: {
         type: "object",

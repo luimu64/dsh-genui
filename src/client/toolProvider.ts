@@ -42,7 +42,14 @@ function missing(args: Record<string, unknown>): Rendered {
   }
 }
 
+/**
+ * A request needs somewhere for the prompt to come from. For `generate_image` that may be
+ * `prompts` alone — a batch that lists one prompt per picture has no single prompt to repeat,
+ * and demanding one turned every such answer into a failed query: the tiles painted
+ * "could not render this picture" before a single frame was queued.
+ */
 function requiredPrompt(args: Record<string, unknown>, tool: string): void {
+  if (tool === 'generate_image' && promptsOf(args).length > 0) return
   if (typeof args.prompt !== 'string' || args.prompt.trim() === '') {
     throw new Error(`${tool} needs a prompt`)
   }

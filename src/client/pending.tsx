@@ -77,19 +77,26 @@ export function useImageAnimating(): boolean {
  * the turn's progress while it shimmers, and unregisters when the picture replaces it.
  *
  * A failed query is not still rendering: the frame stops shimmering and says so, so a
- * failed answer cannot leave an animation running forever.
+ * failed answer cannot leave an animation running forever. That inference is only sound for
+ * a component whose whole existence is one query, though — a batch's query resolves
+ * immediately and its frames arrive later, so a batch passes `failed={false}` and reports
+ * per-frame trouble through its slots instead. Otherwise any unrelated error in the program
+ * painted every tile as broken before a frame was queued.
  */
 export function ImagePlaceholder({
   height,
   children,
+  failed: failedProp,
 }: {
   /** A number of pixels, or "100%" to fill a parent that owns the size. */
   height: number | string;
   children?: ReactNode;
+  /** Override the "this query failed" inference. */
+  failed?: boolean;
 }) {
   const store = useContext(ImageWaitContext);
   const { errors } = useRendererQuery();
-  const failed = errors.length > 0;
+  const failed = failedProp ?? errors.length > 0;
 
   useEffect(() => {
     if (!store || failed) return;
