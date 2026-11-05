@@ -78,7 +78,12 @@ Resolved by `src/host/config.ts`; every key is optional.
 | `maxBatch` | `8` | upper bound on `count` for one request |
 | `pollMs` | `750` | ComfyUI history poll interval while a job runs |
 | `minPngBytes` | `30000` | a smaller PNG is a failed render, not a picture |
-| `filePrefix` | `genui` | stem of render file names: `<filePrefix>_<lane>_<seed>.png` |
+| `filePrefix` | `genui` | stem of render file names; ComfyUI writes them under `ds-<YYYY-MM-DD>/` |
+
+Renders land in ComfyUI's output folder under a date folder, `ds-2026-11-05/`, so a day of
+pictures is one directory instead of a flat pile: `SaveImage.filename_prefix` is
+`ds-<date>/<filePrefix>_<lane>_<seed>` and ComfyUI creates the subfolder. The plugin's own
+copy in `imagesDir` stays flat and is served from `/genui/images/...`.
 | `workflowDir` | `$DSH_HOME/genui/workflows` | where user workflow definitions are read from |
 | `workflows` | `[real]` | enabled workflow ids; volatile, so Settings changes it live |
 | `defaultOn` | `true` | a conversation answers as an OpenUI program unless `/openui off` says otherwise; volatile, so Settings can flip it live |

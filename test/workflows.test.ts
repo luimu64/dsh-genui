@@ -164,7 +164,7 @@ describe('a custom workflow through the service', () => {
       const graph = fake.queued().at(-1) as any
       expect(graph.prompt['5'].inputs.width).toBe(640)
       expect(graph.prompt['6'].inputs.steps).toBe(6)
-      expect(graph.prompt['9'].inputs.filename_prefix).toMatch(/^genui_sketch_/)
+      expect(graph.prompt['9'].inputs.filename_prefix).toMatch(/^ds-\d{4}-\d{2}-\d{2}\/genui_sketch_/)
     } finally {
       fake.stop()
     }

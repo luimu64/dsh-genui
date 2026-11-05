@@ -3,6 +3,7 @@ import {
   MAX_BATCH,
   buildEditGraph,
   buildGraph,
+  dateFolder,
   defaultsFor,
   effectiveUpscale,
 } from '../src/host/graphs'
@@ -21,7 +22,7 @@ describe('buildGraph', () => {
     expect(graph['6'].inputs.steps).toBe(4)
     expect(graph['6'].inputs.cfg).toBe(1)
     expect(graph['6'].inputs.seed).toBe(42)
-    expect(graph['9'].inputs.filename_prefix).toBe('genui_real_42')
+    expect(graph['9'].inputs.filename_prefix).toBe(`${dateFolder()}/genui_real_42`)
   })
 
   test('a style-carrying workflow prepends the template prefix', () => {
@@ -64,7 +65,7 @@ describe('presets', () => {
     expect(graph['6'].inputs.steps).toBe(30)
     expect(graph['6'].inputs.cfg).toBe(4.5)
     expect(graph['6'].inputs.sampler_name).toBe('euler')
-    expect(graph['9'].inputs.filename_prefix).toBe('genui_anima_miao_5')
+    expect(graph['9'].inputs.filename_prefix).toBe(`${dateFolder()}/genui_anima_miao_5`)
   })
 
   test('dasiwa keeps the anime stack', () => {
@@ -76,7 +77,7 @@ describe('presets', () => {
     expect(graph['1'].inputs.unet_name).toBe('dasiwaAnima_obsidianArchivesV2.safetensors')
     expect(graph['2'].inputs.clip_name).toBe('qwen_3_06b_base.safetensors')
     expect(graph['8'].inputs.vae_name).toBe('qwen_image_vae.safetensors')
-    expect(graph['9'].inputs.filename_prefix).toBe('genui_anima_dasiwa_6')
+    expect(graph['9'].inputs.filename_prefix).toBe(`${dateFolder()}/genui_anima_dasiwa_6`)
   })
 
   test('defaultsFor reports what a definition is tuned for', () => {
@@ -177,24 +178,29 @@ describe('buildEditGraph', () => {
     })
     expect(graph['20']).toBeUndefined()
     expect(graph['13'].inputs.model).toEqual(['1', 0])
-    expect(graph['19'].inputs.filename_prefix).toBe('genui_edit_5')
+    expect(graph['19'].inputs.filename_prefix).toBe(`${dateFolder()}/genui_edit_5`)
   })
 })
 
 describe('the file prefix', () => {
+  test('the folder is the local date, zero-padded', () => {
+    expect(dateFolder(new Date(2026, 10, 5, 23, 30))).toBe('ds-2026-11-05')
+    expect(dateFolder(new Date(2026, 0, 9, 1, 5))).toBe('ds-2026-01-09')
+  })
+
   test('defaults to genui and is configurable per deployment', () => {
     expect(buildGraph(real.fast, { prompt: 'x', count: 1 }, 7)['9'].inputs.filename_prefix).toBe(
-      'genui_real_7',
+      `${dateFolder()}/genui_real_7`,
     )
     expect(
       buildGraph(real.fast, { prompt: 'x', count: 1 }, 7, MAX_BATCH, 'studio')['9'].inputs
         .filename_prefix,
-    ).toBe('studio_real_7')
+    ).toBe(`${dateFolder()}/studio_real_7`)
   })
 
   test('reaches the edit graph', () => {
     const graph = buildEditGraph({ prompt: 'x', sourceName: 'a.png', seed: 3, steps: 4 }, 'studio')
-    expect(graph['19'].inputs.filename_prefix).toBe('studio_edit_3')
+    expect(graph['19'].inputs.filename_prefix).toBe(`${dateFolder()}/studio_edit_3`)
   })
 
   test('reaches the defaults helper', () => {

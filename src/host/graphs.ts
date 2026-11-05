@@ -79,6 +79,21 @@ export interface LaneDefaults {
   prefix: string
 }
 
+/**
+ * The folder inside ComfyUI’s `output/` that a run writes into: `ds-<YYYY-MM-DD>`, in
+ * local time. SaveImage treats a slash in `filename_prefix` as a subfolder, so a day of
+ * renders sits together under one dated folder instead of in the flat output root.
+ */
+export function dateFolder(now: Date = new Date()): string {
+  const pad = (value: number) => String(value).padStart(2, '0')
+  return `ds-${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+}
+
+/** `ds-2026-11-05/genui_real_42` — the dated folder in front of the file stem. */
+export function savePrefix(stem: string, now: Date = new Date()): string {
+  return `${dateFolder(now)}/${stem}`
+}
+
 /** The settings a resolved model is tuned for, at the configured file prefix. */
 export function defaultsFor(model: WorkflowModel, filePrefix = DEFAULT_FILE_PREFIX): LaneDefaults {
   return {
@@ -168,7 +183,7 @@ export function buildGraph(
   graph['6'].inputs.seed = seed
   graph['6'].inputs.steps = steps
   graph['6'].inputs.cfg = effectiveCfg(req, model, quality)
-  graph['9'].inputs.filename_prefix = `${defaults.prefix}_${seed}`
+  graph['9'].inputs.filename_prefix = savePrefix(`${defaults.prefix}_${seed}`)
 
   const upscale = effectiveUpscale(req, width, height)
   if (upscale > 1) {
@@ -218,7 +233,8 @@ export function buildEditGraph(req: EditGraphRequest, filePrefix = DEFAULT_FILE_
   graph['9'].inputs.text = req.prompt.trim()
   graph['14'].inputs.noise_seed = seed
   graph['16'].inputs.steps = steps
-  graph['19'].inputs.filename_prefix = req.prefix ?? `${filePrefix}_${EDIT_MODEL.suffix}_${seed}`
+  graph['19'].inputs.filename_prefix =
+    req.prefix ?? savePrefix(`${filePrefix}_${EDIT_MODEL.suffix}_${seed}`)
 
   const lora = req.lora?.trim()
   if (lora) {
