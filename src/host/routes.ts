@@ -125,24 +125,31 @@ export function registerRoutes(
   const guard = (req: IncomingMessage, res: ServerResponse, run: () => Promise<void>) =>
     guardWith(req, res, run, log)
 
-  const post = (path: string, run: (body: Record<string, unknown>) => Promise<unknown>) =>
+  /// The cache key the browser hashed travels *beside* `req` in the wire body, so it has to be
+  /// read from the raw envelope: `payload()` unwraps to the request itself.
+  const keyOf = (raw: unknown): string | undefined => {
+    if (!raw || typeof raw !== 'object') return undefined
+    const key = (raw as Record<string, unknown>).key
+    return typeof key === 'string' ? key : undefined
+  }
+
+  const post = (
+    path: string,
+    run: (body: Record<string, unknown>, key: string | undefined) => Promise<unknown>,
+  ) =>
     ctx.webServer.register({
       kind: 'exact',
       path,
       handler: (req, res) =>
         guard(req, res, async () => {
-          const body = payload(await readJson(req))
-          sendJson(res, 200, await run(body))
+          const raw = await readJson(req)
+          sendJson(res, 200, await run(payload(raw), keyOf(raw)))
         }),
     })
 
   return [
-    post('/genui/generate', (body) =>
-      service.generate(body as any, typeof body.key === 'string' ? body.key : undefined),
-    ),
-    post('/genui/edit', (body) =>
-      service.edit(body as any, typeof body.key === 'string' ? body.key : undefined),
-    ),
+    post('/genui/generate', (body, key) => service.generate(body as any, key)),
+    post('/genui/edit', (body, key) => service.edit(body as any, key)),
 
     // A browser whose own cache lost an entry asks whether this machine still has the
     // picture. Keys only: the answer is a lookup, never a render.
