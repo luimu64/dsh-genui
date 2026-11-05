@@ -114,14 +114,31 @@ export function slotKey(req: BatchRequest, index: number): string {
  */
 function batchKeyRequest(req: BatchRequest): BatchRequest {
   const prompts = promptsOf(req)
-  return Array.isArray(req.prompts) && prompts.length > 1
-    ? { ...req, prompt: prompts.join('\u0000') }
-    : req
+  if (prompts.length < 2) return req
+  // The list, not a join of it: two prompts where one contains the separator hashed the
+  // same as three prompts, so one batch could answer from another one's entry. The count
+  // travels with it, because a list of five is not the same request as a list of two.
+  return { ...req, prompt: JSON.stringify(prompts), count: prompts.length }
 }
 
 /** Everything that makes one batch the same batch: the request, count included. */
 export function batchKey(req: BatchRequest): string {
   return imageKey(batchKeyRequest(req))
+}
+
+/**
+ * How many columns a set of `count` frames is painted in. Two was hard-coded and is only
+ * right for four pictures: five frames became 2 + 2 + a half-width orphan, which reads as
+ * a broken layout rather than a set. Three across for the awkward counts keeps every row
+ * but the last full, and eight (the batch ceiling) stays a square sheet.
+ */
+export function batchColumns(count: number): number {
+  if (count <= 1) return 1
+  if (count === 2) return 2
+  if (count === 3) return 3
+  if (count === 4) return 2
+  if (count <= 6) return 3
+  return 4
 }
 
 export function subscribeBatch(key: string, listener: () => void): () => void {

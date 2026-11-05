@@ -388,16 +388,18 @@ body {
 }
 
 /* A batch is a grid of fixed boxes.
-   The tile is sized by the grid, not by the picture: a square box is reserved the moment the
-   frame is queued, so the shimmer, the failure, the hole and the finished picture all occupy
+   The tile is sized by the grid, not by the picture: a box is reserved the moment the frame
+   is queued, so the shimmer, the failure, the hole and the finished picture all occupy
    exactly the same space. Nothing below the grid moves while a set fills in.
    `cover` rather than `contain`: the picture fills its slot edge to edge and is cropped to
    do it, which is the trade the reader asked for — a uniform grid beats letterbox bars. The
    full-size viewer still shows the whole frame, because that one is `contain`.
 
-   Square is the default because a batch can mix ratios: 832x1216, 1216x832, 992x1504 and
-   whatever the reader asks for next. A fixed square crops every one of them evenly, so the
-   grid stays a grid. Override it with `--genui-tile-aspect` on any ancestor. */
+   The box is portrait, not square. Every lane renders taller than it is wide (832x1216,
+   992x1504), and a square box cropped a portrait frame's head and feet off, which made a
+   batch look like a row of mangled pictures. The component measures the first frame that
+   lands and puts the real ratio on the cells; this is only the shape they hold before that.
+   Override with `--genui-tile-aspect` on any ancestor. */
 .genui-root .genimg-grid {
   display: grid;
   gap: 8px;
@@ -405,7 +407,7 @@ body {
 
 .genui-root .genimg-cell {
   min-width: 0;
-  aspect-ratio: var(--genui-tile-aspect, 1 / 1);
+  aspect-ratio: var(--genui-tile-aspect, 2 / 3);
 }
 
 .genui-root .genimg-cell > * {
@@ -537,6 +539,18 @@ body {
 
 .genui-root .genimg-loading.is-failed {
   color: var(--genui-danger);
+  /* The host's reason rides under the label; a long one has to wrap inside the tile. */
+  padding: 12px;
+  text-align: center;
+  overflow-wrap: anywhere;
+  font: var(--genui-label);
+}
+
+.genui-root .genimg-loading.is-failed .genimg-note {
+  display: block;
+  margin-top: 6px;
+  color: var(--genui-fg-dim);
+  opacity: 0.8;
 }
 
 .genui-root .genimg-loading.is-failed::after {

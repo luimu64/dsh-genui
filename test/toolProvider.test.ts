@@ -6,7 +6,7 @@
  * plus the request shape the host routes expect.
  */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { imageKey } from '../src/client/imageCache'
+import { imageKey, rememberImage } from '../src/client/imageCache'
 import { makeToolProvider } from '../src/client/toolProvider'
 
 const realFetch = globalThis.fetch
@@ -147,6 +147,24 @@ describe('makeToolProvider', () => {
     expect(calls).toHaveLength(0)
     expect(result.images).toHaveLength(2)
     expect(result.images?.every((image) => !image.url)).toBe(true)
+  })
+
+  test('a cached single render never answers for a batch', async () => {
+    // A batch that listed its prompts hashed as `prompt: null, count: 1`, so any stored
+    // render with the same lane and size could answer the query — one picture for a set of
+    // five, and a grid with no frames in it, because a single render carries no `images`.
+    // The collision was real: this entry is what the old lookup found.
+    const collided = imageKey({ lane: 'real', quality: 'fast' })
+    rememberImage(collided, rendered('not the batch'))
+
+    const provider = makeToolProvider({ allowGeneration: false })
+    const result = await provider.generate_image({
+      prompts: ['a badger in snow', 'a badger on sand'],
+      lane: 'real',
+    })
+    expect(result.images).toHaveLength(2)
+    expect(result.images?.every((image) => !image.url)).toBe(true)
+    expect(result.images?.every((image) => typeof image.batch === 'string')).toBe(true)
   })
 
   test('edit_image goes to the edit route with its source', async () => {

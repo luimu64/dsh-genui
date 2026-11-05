@@ -115,6 +115,10 @@ export function OpenUIRow({ node, groupPart, sessionId, inputActions }: OpenUIRo
         <ReplayContext.Provider
           value={{
             allowGeneration,
+            // The same permission the provider computes, read at paint time: the newest
+            // answer dispatches even when it is a replay, so its frames have to say
+            // "rendering" rather than "not saved on this machine".
+            mayGenerate: () => allowGeneration || isTailStep(key),
             retry: () => {
               setAllow(true)
               setRetries((n) => n + 1)

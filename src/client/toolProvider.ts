@@ -97,18 +97,23 @@ async function render(
 ): Promise<Rendered> {
   requiredPrompt(args, tool)
   await hydratedOnce()
-  const key = imageKey(args)
-  const hit = await lookupRender(key)
-  if (hit) return hit
-  const allowed = mayGenerate()
   // A batch the cache does not know is queued frame by frame; the single-image path is
   // unchanged, because one job is already progressive. A prompt per picture is a batch too,
   // even when the caller left the count out.
+  //
+  // This is decided before the cache is consulted. A batch hashed as the raw request used to
+  // mean `prompt: null, count: 1`, so one hit for any such request answered a five-frame set
+  // with a single picture — which the set then painted as an empty grid, because the hit
+  // carries no `images`. So the batch is decided first, and only the single-image path
+  // answers from `imageKey`.
   const listed = promptsOf(args)
   if (tool === 'generate_image' && (listed.length > 1 || Number(args.count) > 1)) {
-    return batchResult(args, allowed)
+    return batchResult(args, mayGenerate())
   }
-  if (!allowed) return missing(args)
+  const key = imageKey(args)
+  const hit = await lookupRender(key)
+  if (hit) return hit
+  if (!mayGenerate()) return missing(args)
   return cachedRender(key, () => withRetry(() => post(path, { req: args })))
 }
 

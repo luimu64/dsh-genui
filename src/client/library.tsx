@@ -3,8 +3,7 @@ import { defineComponent } from "@openuidev/react-lang";
 import { openuiLibrary } from "@openuidev/react-ui";
 import { Button } from "@deepseek-ai/dsh-client-ui-primitives";
 import { DEFAULT_WORKFLOWS, QUALITY_IDS } from "../shared/models";
-import { batchSlots, batchVersion, subscribeBatch } from "./batches";
-import { imageUrls } from "./images";
+import { batchColumns, batchSlots, batchVersion, subscribeBatch } from "./batches";
 import { ImagePlaceholder } from "./pending";
 import { useReplay } from "./replay";
 import { z } from "zod/v4";
@@ -26,6 +25,12 @@ function download(url: string, name: string) {
   a.download = name;
   a.rel = "noopener";
   a.click();
+}
+
+/** One line of the host's own failure text, for the cell under a failed frame. */
+function shortError(error: string): string {
+  const text = error.replace(/^Error:\s*/, "").replace(/\s+/g, " ").trim();
+  return text.length > 120 ? `${text.slice(0, 117)}…` : text;
 }
 
 function downloadName(prompt: string, suffix = "") {
@@ -243,6 +248,7 @@ function GenFigure({
   showCaption = true,
   tile = false,
   frames,
+  onAspect,
 }: {
   src: string;
   caption: string;
@@ -252,6 +258,8 @@ function GenFigure({
   tile?: boolean;
   /** The set this picture belongs to, so the full size view can walk it. */
   frames?: () => ViewerFrame[];
+  /** Told the picture's own width/height ratio once the bitmap is here. */
+  onAspect?: (ratio: number) => void;
 }) {
   const [note, setNote] = useState("");
 
@@ -281,6 +289,12 @@ function GenFigure({
         alt={caption}
         onClick={() => open(src, caption)}
         title="Click to view full size"
+        onLoad={(e) => {
+          const img = e.currentTarget;
+          if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+            onAspect?.(img.naturalWidth / img.naturalHeight);
+          }
+        }}
       />
       <div className="genimg-actions">
         <button
@@ -311,11 +325,13 @@ function GenFigure({
 }
 
 /**
- * A picture a stored answer refers to that is not on this machine any more: the file was
- * never copied in, the cache was rebuilt, or that frame of a batch never finished. It is
- * painted as a hole with an explicit control, never as progress — a shimmer that never
- * ends reads as "still rendering", and a silent re-render spends the GPU on a conversation
- * the user only opened.
+ * A picture a stored answer refers to that has no render this page can show: it was never
+ * copied in, the cache was rebuilt, or that frame of a batch never finished. It is painted
+ * as a hole with an explicit control, never as progress — a shimmer that never ends reads
+ * as "still rendering", and a silent re-render spends the GPU on a conversation the user
+ * only opened.
+ *
+ * Reaching this state takes a settled query: see `useSettled`.
  */
 function MissingFrame({
   height,
@@ -341,6 +357,22 @@ function MissingFrame({
   );
 }
 
+/**
+ * False only for the first moments of a mount. A stored answer's query answers
+ * asynchronously — it first waits for the cache to hydrate — so the first paint of every
+ * image component is an empty result even when the picture is sitting in the cache. Painting
+ * the terminal "not saved" box on that first paint is what made a rendering frame look
+ * broken; the box waits for the query to have had its moment.
+ */
+function useSettled(delay = 400): boolean {
+  const [settled, setSettled] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setSettled(true), delay);
+    return () => clearTimeout(timer);
+  }, [delay]);
+  return settled;
+}
+
 const GenImage = defineComponent({
   name: "GenImage",
   description:
@@ -351,14 +383,18 @@ const GenImage = defineComponent({
     seed: z.number().optional(),
   }),
   component: ({ props }) => {
-    const { allowGeneration, retry } = useReplay();
+    const { mayGenerate, retry } = useReplay();
+    const settled = useSettled();
     if (!props.url) {
-      // An empty url is either "being made right now" or "gone"; only the turn that may
-      // queue work is allowed to claim the first.
-      if (!allowGeneration) {
-        return <MissingFrame height={320} onRetry={retry} />;
+      // An empty url is "being made right now", "about to be asked for", or "gone". Only
+      // the first two may claim progress, and the second is indistinguishable from the
+      // third until the query has had a moment to answer: after a reload the newest answer
+      // dispatches even though it is not `live`, and calling that "not saved on this
+      // machine" put a terminal message next to a frame that was rendering.
+      if (mayGenerate() || !settled) {
+        return <ImagePlaceholder height={320}>rendering…</ImagePlaceholder>;
       }
-      return <ImagePlaceholder height={320}>rendering…</ImagePlaceholder>;
+      return <MissingFrame height={320} onRetry={retry} />;
     }
 
     return <GenFigure src={props.url} caption={props.prompt} prompt={props.prompt} />;
@@ -384,7 +420,9 @@ const noVersion = () => 0;
  * A running batch reads its slots from the batch store and subscribes to it, so each
  * picture appears the moment that image is done — without re-parsing the answer or
  * re-running its query for every frame. A set that is not a live batch (a stored answer,
- * or a reply written before progressive rendering) falls back to the urls it carries.
+ * or a reply written before progressive rendering) falls back to the urls it carries, and
+ * an entry with no url there is a frame that was never rendered: keeping the entry paints
+ * the hole in the right cell instead of silently shortening the grid.
  */
 function useBatchSlots(urls: unknown): SlotView[] {
   const key = batchOf(urls);
@@ -402,7 +440,16 @@ function useBatchSlots(urls: unknown): SlotView[] {
       prompt: slot.prompt,
     }));
   }
-  return imageUrls(urls).map((url) => ({ url }));
+  const list = Array.isArray(urls) ? urls : [];
+  return list.flatMap((entry) => {
+    const url =
+      typeof entry === "string"
+        ? entry
+        : entry && typeof entry === "object" && typeof (entry as { url?: unknown }).url === "string"
+          ? ((entry as { url: string }).url ?? "")
+          : "";
+    return [{ url, missing: !url }];
+  });
 }
 
 const GenImageSet = defineComponent({
@@ -432,8 +479,13 @@ const GenImageSet = defineComponent({
   }),
   component: ({ props }) => {
     const [note, setNote] = useState("");
-    const { allowGeneration, retry } = useReplay();
+    const { mayGenerate, retry } = useReplay();
+    const settled = useSettled();
     const slots = useBatchSlots(props.urls);
+    // The shape of the set, taken from the first picture that lands. Until then the grid is
+    // laid out in the default portrait box; a lane that renders landscape or square corrects
+    // it once, before anything has painted over the placeholders.
+    const [aspect, setAspect] = useState<number | null>(null);
     const done = slots.filter((slot) => slot.url);
     const failed = slots.filter((slot) => !slot.url && slot.error);
     const gone = slots.filter((slot) => !slot.url && slot.missing);
@@ -470,12 +522,13 @@ const GenImageSet = defineComponent({
     }, [done, props.prompt]);
 
     if (!slots.length) {
-      // Nothing to paint and nothing coming: a stored answer whose set is gone is a hole,
-      // not a shimmer that runs forever.
-      if (!allowGeneration) {
-        return <MissingFrame height={240} onRetry={retry} label="this set is not saved on this machine" />;
+      // Nothing to paint yet. A stored answer whose set is gone is a hole, not a shimmer
+      // that runs forever — but only once the query has answered, because the newest stored
+      // answer does dispatch and its frames are on their way.
+      if (mayGenerate() || !settled) {
+        return <ImagePlaceholder height={240}>rendering the set…</ImagePlaceholder>;
       }
-      return <ImagePlaceholder height={240}>rendering the set…</ImagePlaceholder>;
+      return <MissingFrame height={240} onRetry={retry} label="no frames of this set are saved on this machine" />;
     }
 
     return (
@@ -485,14 +538,18 @@ const GenImageSet = defineComponent({
           style={{
             // Sized from the request, not from how many frames have landed, so the
             // placeholders do not reflow the page as each picture arrives.
-            gridTemplateColumns: `repeat(${slots.length > 1 ? 2 : 1}, minmax(0, 1fr))`,
+            gridTemplateColumns: `repeat(${batchColumns(slots.length)}, minmax(0, 1fr))`,
           }}
         >
           {slots.map((slot, i) => (
             // Every cell is a fixed box whether it holds a shimmer, a failure, a hole or a
             // finished picture. The frame that arrives is *contained* in the box it was
             // promised, so a batch fills in without moving anything below it.
-            <div className="genimg-cell" key={i}>
+            <div
+              className="genimg-cell"
+              key={i}
+              style={aspect ? { aspectRatio: String(aspect) } : undefined}
+            >
               {slot.url ? (
                 // Each finished frame is complete on its own: full-size view and download
                 // work while the rest of the set is still rendering.
@@ -505,12 +562,13 @@ const GenImageSet = defineComponent({
                   showCaption={false}
                   tile
                   frames={frames}
+                  onAspect={(ratio) => setAspect((current) => current ?? ratio)}
                 />
               ) : slot.missing ? (
                 <MissingFrame
                   height="100%"
                   onRetry={retry}
-                  label={`image ${i + 1} is not saved on this machine`}
+                  label={`frame ${i + 1} was never rendered`}
                 />
               ) : slot.error ? (
                 <div
@@ -521,6 +579,9 @@ const GenImageSet = defineComponent({
                   aria-label={`image ${i + 1} failed`}
                 >
                   could not render this picture
+                  {/* The host's own words, not ours: a rejected frame and a stopped ComfyUI
+                      look identical as "failed" and send the reader somewhere different. */}
+                  <span className="genimg-note">{shortError(slot.error)}</span>
                 </div>
               ) : (
                 // A batch is not its query: the query resolved with slots, and each frame
@@ -538,7 +599,7 @@ const GenImageSet = defineComponent({
             {props.quality ? ` · ${props.quality}` : ""} · {done.length} of {slots.length}{" "}
             {slots.length === 1 ? "image" : "images"}
             {failed.length ? ` · ${failed.length} failed` : ""}
-            {gone.length ? ` · ${gone.length} not saved here` : ""}
+            {gone.length ? ` · ${gone.length} never rendered` : ""}
           </span>
           <Button variant="ghost" size="sm" onClick={() => void save()} disabled={!done.length}>
             download all

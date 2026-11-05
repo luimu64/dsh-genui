@@ -8,6 +8,7 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import {
+  batchColumns,
   batchKey,
   batchSlots,
   batchVersion,
@@ -160,5 +161,32 @@ describe('per-frame prompts', () => {
     const keyA = batchKey({ lane: 'real', quality: 'fast', prompt: first[0], prompts: first })
     const keyB = batchKey({ lane: 'real', quality: 'fast', prompt: second[0], prompts: second })
     expect(keyA).not.toBe(keyB)
+  })
+
+  test('a prompt containing the join separator is not another list', () => {
+    // Joined with a separator, ["one\u0000two"] and ["one", "two"] hashed the same, so a
+    // replay could answer from the wrong batch. The key carries the list itself now.
+    const single = batchKey({ lane: 'real', quality: 'fast', prompts: ['one\u0000two'] })
+    const pair = batchKey({ lane: 'real', quality: 'fast', prompts: ['one', 'two'] })
+    expect(single).not.toBe(pair)
+  })
+
+  test('the size of a listed batch is part of its key', () => {
+    const two = batchKey({ lane: 'real', quality: 'fast', prompts: ['one', 'two'] })
+    const three = batchKey({ lane: 'real', quality: 'fast', prompts: ['one', 'two', 'three'] })
+    expect(two).not.toBe(three)
+  })
+})
+
+describe('batchColumns', () => {
+  test('every count up to the batch ceiling has a width', () => {
+    expect([1, 2, 3, 4, 5, 6, 7, 8].map(batchColumns)).toEqual([1, 2, 3, 2, 3, 3, 4, 4])
+  })
+
+  test('five frames are not 2 + 2 + an orphan', () => {
+    // The hard-coded two columns painted a five-frame set as two rows and a dangling
+    // half-width tile, which is what read as a broken layout.
+    expect(batchColumns(5)).toBe(3)
+    expect(5 % batchColumns(5)).toBe(2)
   })
 })

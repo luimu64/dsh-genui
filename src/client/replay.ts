@@ -21,11 +21,25 @@ import { createContext, useContext } from "react";
 export type ReplayAccess = {
   /** True only for the turn that may queue work right now. */
   allowGeneration: boolean;
+  /**
+   * What the query provider will actually do: `allowGeneration`, or "this is the newest
+   * answer, so it is what the user is looking at". The two differ after a reload, where a
+   * stored answer is not `live` but the newest one still dispatches.
+   *
+   * The image components read this one. They used `allowGeneration`, so a frame that was
+   * rendering at that moment was painted as "this picture is not saved on this machine" —
+   * a terminal message with a retry button, next to a sibling that said "rendering…".
+   */
+  mayGenerate: () => boolean;
   /** The user asked for this turn's missing pictures to be made again. */
   retry: () => void;
 };
 
-const inert: ReplayAccess = { allowGeneration: false, retry: () => {} };
+const inert: ReplayAccess = {
+  allowGeneration: false,
+  mayGenerate: () => false,
+  retry: () => {},
+};
 
 export const ReplayContext = createContext<ReplayAccess>(inert);
 

@@ -98,6 +98,12 @@ the first picture arrives far sooner.
 
 A single-image request is still one job, unchanged.
 
+The grid follows the number of frames — one, two, three wide, two for four, three for five or
+six, four for seven or eight — rather than the two columns it used to assume, and the cells
+take the first frame's own aspect ratio instead of being square, so a portrait render is not
+cropped at the head and feet. A frame that failed and a frame that was never rendered here are
+different cells: the first retries by itself, the second says so and offers to render the set.
+
 ## Workflows
 
 A **workflow** is a lane plus everything it drags in: one or two graphs (fast/high), the
