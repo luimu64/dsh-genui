@@ -119,17 +119,45 @@ describe('client bundle', () => {
         return () => {}
       },
     }
+    const effects: (() => unknown)[] = []
+    const scoped = {
+      slots,
+      effect: (fn: () => unknown) => {
+        effects.push(fn)
+        fn()
+        return () => {}
+      },
+      // Borrowing a scope is what the click bridge does. A row painted outside a retained
+      // session must get `undefined` rather than a throw, so the fake answers the same way.
+      sessions: { scope: () => undefined },
+    }
     return {
       effect: (fn: () => unknown) => {
         fn()
         return () => {}
       },
       slots,
+      effects,
       inject: (deps: string[], callback: (scoped: unknown) => void) => {
-        if (deps.every((dep) => services.includes(dep))) callback({ slots })
+        if (deps.every((dep) => services.includes(dep))) callback(scoped)
       },
     }
   }
+
+  test('publishes the click bridge only when the sessions service is composed', () => {
+    // A rendered answer cannot reach a Cordis context, so the plugin lends it the scope the
+    // row names. Without that block every `@ToAssistant` a program fires is delivered to
+    // nobody: the control paints, takes focus, and does nothing.
+    const { exports } = materialize()
+
+    const bare = fakeContext([])
+    exports.apply(bare)
+    expect(bare.effects).toHaveLength(0)
+
+    const composed = fakeContext([], ['sessions'])
+    exports.apply(composed)
+    expect(composed.effects).toHaveLength(1)
+  })
 
   test('shadows the assistant row instead of adding a second one', () => {
     const { exports, document } = materialize()

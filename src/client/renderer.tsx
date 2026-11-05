@@ -6,12 +6,13 @@
  * the token footer, and the process disclosure read, and only the painting changes. See
  * `docs/client-contract.md` for why the exclusive-Definition design was dropped.
  */
-import { useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useMemo, useState, type ReactNode } from 'react'
 import { Renderer } from '@openuidev/react-lang'
 import { MarkdownText, type MarkdownLabels } from '@deepseek-ai/dsh-client-ui-primitives'
 import { genuiLibrary } from './library'
 import { makeToolProvider } from './toolProvider'
 import { friendlyErrors, repairProgram } from './repair'
+import { runAction, type ActionEventLike, type ComposerInput } from './actions'
 import { ReplayContext } from './replay'
 import { ImageWaitProvider, useImageAnimating } from './pending'
 import {
@@ -34,6 +35,13 @@ export interface OpenUIRowProps {
    * looked like it was shown twice and then folded away.
    */
   groupPart?: string
+  /** The row's session, from the slot's standard props. */
+  sessionId?: string
+  /**
+   * The session's public input actions, also from the standard props. Only used when the
+   * session has no retained scope to send through, so a click still lands.
+   */
+  inputActions?: ComposerInput
 }
 
 /** English chrome for the shell's markdown renderer; the plugin's copy is not localized. */
@@ -52,7 +60,7 @@ function QueryThinking(): ReactNode {
   return <div className="genui-loading" role="status" aria-label="Loading" />
 }
 
-export function OpenUIRow({ node, groupPart }: OpenUIRowProps): ReactNode {
+export function OpenUIRow({ node, groupPart, sessionId, inputActions }: OpenUIRowProps): ReactNode {
   const data = node.data
   const key = stepKey(data)
   // Read once per paint: a step that streamed in this page session may queue ComfyUI, a step
@@ -68,6 +76,16 @@ export function OpenUIRow({ node, groupPart }: OpenUIRowProps): ReactNode {
   const provider = useMemo(
     () => makeToolProvider({ allowGeneration, isTail: () => isTailStep(key) }),
     [allowGeneration, key],
+  )
+
+  // Every action a drawn control can fire lands here: `@ToAssistant`, `@OpenUrl`, a bare
+  // Button's own label, a card's action, and the form-state payload a Form button carries.
+  // Without this callback the renderer delivered all of them to nobody, so a click was inert.
+  const onAction = useCallback(
+    (event: ActionEventLike) => {
+      runAction(event, sessionId, inputActions)
+    },
+    [sessionId, inputActions],
   )
 
   // The disclosure's copy of this step: reasoning only, never the answer.
@@ -112,6 +130,7 @@ export function OpenUIRow({ node, groupPart }: OpenUIRowProps): ReactNode {
                 library={genuiLibrary}
                 response={repairProgram(programText(text))}
                 toolProvider={provider}
+                onAction={onAction}
                 queryLoader={<QueryThinking />}
                 onError={(list) => setErrors(friendlyErrors(list ?? []))}
               />
