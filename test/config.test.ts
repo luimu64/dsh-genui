@@ -1,58 +1,31 @@
 import { describe, expect, test } from 'bun:test'
-import { join } from 'node:path'
-import { Config, defaultImagesDir } from '../src/host/config'
+import { Config } from '../src/host/config'
 
 /** Schemastery schemas are callable resolvers; the type says "give me a whole Config". */
 const resolve = (input: object): Record<string, unknown> =>
   (Config as unknown as (value: object) => Record<string, unknown>)(input)
 
-describe('defaultImagesDir', () => {
-  test('lives under the XDG data directory when one is set', () => {
-    expect(defaultImagesDir({ XDG_DATA_HOME: '/srv/data' }, '/home/someone')).toBe(
-      join('/srv/data', 'dsh-genui', 'images'),
-    )
-  })
-
-  test('falls back to ~/.local/share, and never to a path from this checkout', () => {
-    const dir = defaultImagesDir({}, '/home/someone')
-    expect(dir).toBe(join('/home/someone', '.local', 'share', 'dsh-genui', 'images'))
-    expect(dir).not.toContain('projects')
-  })
-
-  test('an empty or blank override is ignored', () => {
-    expect(defaultImagesDir({ XDG_DATA_HOME: '   ' }, '/home/someone')).toBe(
-      join('/home/someone', '.local', 'share', 'dsh-genui', 'images'),
-    )
-  })
-})
-
 describe('Config schema', () => {
-  test('resolves every key with a usable default', () => {
-    const resolved = resolve({})
-    expect(resolved.comfyBase).toBe('http://127.0.0.1:8188')
-    expect(resolved.maxBatch).toBe(8)
-    expect(resolved.pollMs).toBe(750)
-    expect(resolved.minPngBytes).toBe(30_000)
-    expect((resolved.defaultOn as unknown as { get(): boolean }).get()).toBe(true)
-    expect(resolved.filePrefix).toBe('genui')
-    // Volatile: the schema hands back a live reference, not a plain array.
-    expect((resolved.workflows as unknown as { get(): string[] }).get()).toEqual(['real'])
-    expect(String(resolved.imagesDir)).toContain('dsh-genui')
-  })
-
-  test('anime is opt-in: it is not part of the default workflows', () => {
-    const workflows = resolve({ workflows: ['real', 'anime'] }).workflows as unknown as {
-      get(): string[]
-    }
-    expect(workflows.get()).toEqual(['real', 'anime'])
-  })
-
-  test('takes an explicit file prefix', () => {
-    expect(resolve({ filePrefix: 'studio' }).filePrefix).toBe('studio')
+  test('answers as an interface by default', () => {
+    const defaultOn = resolve({}).defaultOn as unknown as { get(): boolean }
+    expect(defaultOn.get()).toBe(true)
   })
 
   test('the answer format default can be switched off', () => {
     const defaultOn = resolve({ defaultOn: false }).defaultOn as unknown as { get(): boolean }
     expect(defaultOn.get()).toBe(false)
+  })
+
+  test('defaultOn is volatile, so a settings row writes it without a restart', () => {
+    // A volatile field resolves to a live reference, not to a boolean copy: the host reads
+    // it per answer, which is what makes the switch land on the next answer.
+    const field = resolve({}).defaultOn as unknown as { get?: unknown }
+    expect(typeof field.get).toBe('function')
+  })
+
+  test('carries no key that belongs to an optional companion', () => {
+    // Image generation (ComfyUI, workflows, an images directory) is a separate bundle with
+    // its own config entry. A renderer config that still names them is the split leaking.
+    expect(Object.keys(resolve({}))).toEqual(['defaultOn'])
   })
 })

@@ -9,7 +9,7 @@ import {
 import { useRendererQuery } from "@openuidev/react-lang";
 
 /**
- * Image components paint their own progress while ComfyUI renders: the shimmer on
+ * Image components paint their own progress while an image query is out: the shimmer on
  * `.genimg-loading`, plus the "rendering…" label. That *is* the feedback
  * for an image query, so the turn must not stack its dots or the renderer's loader on
  * top of it. Placeholders register here, per renderer, and the indicators consult it.

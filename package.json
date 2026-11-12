@@ -1,7 +1,7 @@
 {
   "name": "dsh-genui",
-  "version": "0.5.1",
-  "description": "DeepSeek Harness bundle: answers rendered as OpenUI Lang interface, with generate_image and edit_image backed by a local ComfyUI",
+  "version": "0.7.0",
+  "description": "DeepSeek Harness bundle: answers rendered as OpenUI Lang interface, with the component library included",
   "license": "MIT",
   "author": "luimu64",
   "repository": {
@@ -16,10 +16,9 @@
     "deepseek-harness",
     "dsh",
     "openui",
-    "comfyui",
     "bundle",
     "plugin",
-    "image-generation"
+    "interface"
   ],
   "type": "module",
   "main": "lib/index.js",

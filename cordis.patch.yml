@@ -2,26 +2,7 @@
     - id: genui
       name: dsh-genui
       config:
-        # Where the ComfyUI this bundle talks to is listening.
-        comfyBase: http://127.0.0.1:8188
-        # Where renders are written and served from. Omit it for
-        # $XDG_DATA_HOME/dsh-genui/images (~/.local/share/dsh-genui/images).
-        # imagesDir: /srv/dsh-genui/images
-        # Upper bound on `count` for one batch, and the history poll interval in ms.
-        maxBatch: 8
-        pollMs: 750
-        # A PNG under this size is a failed render, not a picture.
-        minPngBytes: 30000
-        # Stem of render file names: <filePrefix>_<lane>_<seed>.png.
-        filePrefix: genui
-        # Where user workflow definitions are read from. Omit it for
-        # $DSH_HOME/genui/workflows (~/.local/share/dsh-genui/workflows without DSH_HOME).
-        # workflowDir: /srv/dsh-genui/workflows
-        # Image workflows this deployment exposes. `real` is the default. Add `anime` to opt
-        # in to the anime lane: its graphs, its full-checkpoint presets and its prompt
-        # section. Nothing anime-related is loaded, advertised or queued unless it is listed.
-        workflows:
-          - real
-          # - anime
         # Answers are OpenUI programs unless a conversation says /openui off.
+        # Image generation is a separate bundle (dsh-genui-images): install it to add
+        # generate_image/edit_image, and this one keeps working either way.
         defaultOn: true

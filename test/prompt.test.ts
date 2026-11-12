@@ -1,75 +1,15 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
-import { mkdtemp, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { openuiPrompt, registerAgentPrompt, renderList } from '../src/host/prompt'
-import { saveRender } from '../src/host/images'
-import { testConfig } from './helpers'
-import { createWorkflowRegistry } from '../src/host/workflows'
+import { COMPONENT_HEADING, NO_TOOLS, componentCatalogue, fillAnchor, openuiPrompt } from '../src/host/prompt'
+import { createGenuiHostService } from '../src/host/registry'
 
-/** The anime workflow's prompt section, read the way the registry reads it. */
-function animeSection(): string {
-  const registry = createWorkflowRegistry({ dir: '/nonexistent/genui-workflows' })
-  const [section] = registry.prompts(['anime'])
-  return section ?? ''
-}
+const rules = () => readFileSync(new URL('../assets/prompt-rules.md', import.meta.url), 'utf8').trimEnd()
 
-async function tempDir() {
-  return mkdtemp(join(tmpdir(), 'genui-'))
-}
-
-describe('renderList', () => {
-  test('names the newest render first', async () => {
-    const dir = await tempDir()
-    try {
-      await saveRender(dir, 'older.png', new Uint8Array([1]))
-      await new Promise((r) => setTimeout(r, 20))
-      await saveRender(dir, 'newer.png', new Uint8Array([2]))
-      const text = renderList(dir, 2)
-      expect(text).toContain('### Renders in this conversation')
-      expect(text).toContain('(newest)')
-      expect(text.indexOf('newer.png')).toBeLessThan(text.indexOf('older.png'))
-    } finally {
-      await rm(dir, { recursive: true, force: true })
-    }
-  })
-
-  test('is empty when there is nothing to edit', () => {
-    expect(renderList('/nonexistent/genui-images')).toBe('')
-  })
-
-  test('is synchronous, because the prompt context cannot await', () => {
-    const value = renderList('/nonexistent/genui-images')
-    expect(typeof (value as unknown as { then?: unknown }).then).not.toBe('function')
-  })
-})
-
-describe('openuiPrompt', () => {
-  test('reads the committed prompt', () => {
+describe('the committed prompt', () => {
+  test('reads the committed assets', () => {
     const text = openuiPrompt()
     expect(text.length).toBeGreaterThan(8_000)
     expect(text).toContain('root = Stack(')
-  })
-
-  test('a default install gets no anime section', () => {
-    const text = openuiPrompt()
-    expect(text).not.toContain('Optional workflow: anime')
-    expect(text).not.toContain('booru')
-    expect(text).not.toContain('"anime"')
-    expect(text).not.toContain('miaoharem')
-  })
-
-  test('enabling the anime workflow appends its section, before the rules', () => {
-    const text = openuiPrompt([animeSection()])
-    expect(text).toContain('Optional workflow: anime')
-    expect(text).toContain('lane: "anime"')
-    expect(text).toContain('preset')
-    const animeAt = text.indexOf('Optional workflow: anime')
-    const rulesAt = text.indexOf('## Harness rules')
-    expect(animeAt).toBeGreaterThan(-1)
-    expect(rulesAt).toBeGreaterThan(animeAt)
-    expect(text.trimEnd().endsWith(readFileSync(new URL('../assets/prompt-rules.md', import.meta.url), 'utf8').trimEnd())).toBe(true)
   })
 
   test('is written to sit beside the harness prompt, not instead of it', () => {
@@ -78,97 +18,151 @@ describe('openuiPrompt', () => {
     // The old opening claimed the entire system prompt; that breaks as an additive section.
     expect(text).not.toContain('Your ENTIRE response must be valid openui-lang code')
     expect(text).toContain('only the final assistant message of a turn is a program')
-    expect(text).toContain('You are the same assistant')
+    expect(text).toContain('## Using the components')
   })
 
-  test('names the two tools the harness actually exposes', () => {
-    const text = openuiPrompt()
-    expect(text).toContain('web_search(queries: string[])')
-    expect(text).toContain('web_fetch(url: string)')
-    expect(text).not.toContain('web_extract')
-    expect(text).not.toContain('maxResults')
-    expect(text).not.toContain('not a browser')
-  })
-
-  test('describes the two image queries the library declares', () => {
-    const text = openuiPrompt()
-    expect(text).toContain('generate_image')
-    expect(text).toContain('edit_image')
-  })
-
-  test('forbids probing ComfyUI before a query', () => {
-    const text = openuiPrompt()
-    expect(text).toContain('Never check on ComfyUI yourself')
-    expect(text).toContain('no `/system_stats`')
-  })
-})
-
-describe('registerAgentPrompt', () => {
-  test('adds the section at assembly, for that conversation only', async () => {
-    const listeners = new Map<string, (assembly: any, context: any, next: () => Promise<any>) => Promise<any>>()
-    const on = new Set<string>()
-
-    const ctx = {
-      on(name: string, listener: any) {
-        listeners.set(name, listener)
-        return () => {}
-      },
-    } as any
-
-    registerAgentPrompt(
-      ctx,
-      testConfig({ defaultOn: false, workflows: ['real', 'anime'] }),
-      {
-        file: '/tmp/x.json',
-        defaultOn: false,
-        isOn: (id: string) => on.has(id),
-        set: (id: string, next: boolean) => (next ? on.add(id) : on.delete(id)),
-        sessions: () => [...on],
-        offSessions: () => [],
-      },
-      createWorkflowRegistry({ dir: '/nonexistent/genui-workflows' }),
-    )
-
-    const assemble = listeners.get('system-prompt/assemble')
-    expect(assemble).toBeDefined()
-
-    const base = { sections: [{ name: 'deployment:persona-prefix', text: 'You are a coding agent.' }], contexts: [], tools: [], variables: {} }
-    const next = async () => structuredClone(base)
-    const agent = (id: string, origin?: 'subagent') => ({ session: { id, header: { origin } } })
-
-    const off = await assemble!({ ...base }, { agent: agent('s1') }, next)
-    expect(off.sections.map((s: any) => s.name)).toEqual(['deployment:persona-prefix'])
-
-    on.add('s1')
-    const mine = await assemble!({ ...base }, { agent: agent('s1') }, next)
-    expect(mine.sections.map((s: any) => s.name)).toEqual(['deployment:persona-prefix', 'genui:openui'])
-    expect(mine.sections[1].text).toContain('root = Stack(')
-
-    // Another conversation is untouched, and so is a subagent.
-    const other = await assemble!({ ...base }, { agent: agent('s2') }, next)
-    expect(other.sections).toHaveLength(1)
-    const child = await assemble!({ ...base }, { agent: agent('s3', 'subagent') }, next)
-    expect(child.sections).toHaveLength(1)
-
-    // Assembling twice never stacks the section.
-    const again = await assemble!({ ...base }, { agent: agent('s1') }, next)
-    expect(again.sections).toHaveLength(2)
-
-    // And off again lands on the next assembly.
-    on.delete('s1')
-    const back = await assemble!({ ...base }, { agent: agent('s1') }, next)
-    expect(back.sections).toHaveLength(1)
-  })
-})
-
-describe('the committed prompt', () => {
   test('ends with the rules asset, so a regeneration cannot silently drop them', () => {
-    const rules = readFileSync(new URL('../assets/prompt-rules.md', import.meta.url), 'utf8').trimEnd()
-    expect(rules.length).toBeGreaterThan(1000)
-    expect(openuiPrompt().trimEnd().endsWith(rules)).toBe(true)
+    // Only the companion anchor inside the asset is resolved; the text around it is verbatim.
+    const resolved = fillAnchor(rules(), '<!-- genui:rules -->', [])
+    expect(openuiPrompt().trimEnd().endsWith(resolved)).toBe(true)
+    expect(resolved).toContain('## Using the components')
   })
 
   test('carries no absolute path from the machine that generated it', () => {
     expect(openuiPrompt()).not.toContain('/home/')
+  })
+
+  test('names the two web tools the harness exposes, and no image tool', () => {
+    const text = openuiPrompt()
+    expect(text).toContain('web_search(queries: string[])')
+    expect(text).toContain('web_fetch(url: string)')
+    // Generation is a companion's business: nothing here may promise it.
+    expect(text).not.toContain('generate_image')
+    expect(text).not.toContain('edit_image')
+    expect(text).not.toContain('ComfyUI')
+  })
+})
+
+describe('the anchors', () => {
+  test('an empty tool catalogue says so instead of promising one', () => {
+    const text = openuiPrompt()
+    expect(text).toContain(NO_TOOLS)
+  })
+
+  test('a registered tool block replaces the fallback, in place', () => {
+    const service = createGenuiHostService()
+    service.addPromptBlock({
+      id: 'probe',
+      anchor: 'tools',
+      text: () => '- probe_tool(query: string) → {rows: any[]}\n  Reads something.',
+    })
+    const text = openuiPrompt(service)
+    expect(text).toContain('- probe_tool(query: string)')
+    expect(text).not.toContain(NO_TOOLS)
+    // Inside "Available Tools", before the section that follows it.
+    const toolsAt = text.indexOf('## Available Tools')
+    const probeAt = text.indexOf('- probe_tool(')
+    const nextSection = text.indexOf('## Hoisting & Streaming')
+    expect(probeAt).toBeGreaterThan(toolsAt)
+    expect(probeAt).toBeLessThan(nextSection)
+  })
+
+  test('examples append to the committed ones rather than replacing them', () => {
+    const service = createGenuiHostService()
+    service.addPromptBlock({ id: 'ex', anchor: 'examples', text: () => 'root = Stack([only_mine])' })
+    const text = openuiPrompt(service)
+    expect(text).toContain('The build is green')
+    expect(text).toContain('root = Stack([only_mine])')
+    expect(text.indexOf('The build is green')).toBeLessThan(text.indexOf('root = Stack([only_mine])'))
+  })
+
+  test('rules land between the harness rules, not after them', () => {
+    const service = createGenuiHostService()
+    service.addPromptBlock({ id: 'r', anchor: 'rules', text: () => '### A companion rule' })
+    const text = openuiPrompt(service)
+    const webAt = text.indexOf('### Web')
+    const mineAt = text.indexOf('### A companion rule')
+    const styleAt = text.indexOf('### Style')
+    expect(mineAt).toBeGreaterThan(webAt)
+    expect(mineAt).toBeLessThan(styleAt)
+  })
+
+  test('append blocks sit between the language and the rules', () => {
+    const service = createGenuiHostService()
+    service.addPromptBlock({ id: 'w', anchor: 'append', text: () => '### Optional workflow: probe' })
+    const text = openuiPrompt(service)
+    const appendAt = text.indexOf('### Optional workflow: probe')
+    expect(appendAt).toBeGreaterThan(text.indexOf('## Final Verification'))
+    expect(appendAt).toBeLessThan(text.indexOf('## Using the components'))
+  })
+
+  test('reads the blocks per call, so a live write reaches the next answer', () => {
+    let current = ''
+    const service = createGenuiHostService()
+    service.addPromptBlock({ id: 'live', anchor: 'tools', text: () => current })
+    expect(openuiPrompt(service)).toContain(NO_TOOLS)
+    current = '- live_tool()'
+    expect(openuiPrompt(service)).toContain('- live_tool()')
+  })
+})
+
+describe('components a bundle adds', () => {
+  const star = {
+    name: 'StarRating',
+    signature: 'StarRating(label: string, value?: number, max?: number)',
+    description: 'Five stars for a quick rating. Use it when the reader wants a score, not a table.',
+  }
+
+  test('nothing registered leaves no heading and no marker', () => {
+    const text = openuiPrompt()
+    expect(text).not.toContain(COMPONENT_HEADING)
+    expect(text).not.toContain('genui:components')
+  })
+
+  test('a registered component lands in the catalogue, like a shipped one', () => {
+    const service = createGenuiHostService()
+    service.addComponents([star])
+    const text = openuiPrompt(service)
+    expect(text).toContain(COMPONENT_HEADING)
+    expect(text).toContain(
+      'StarRating(label: string, value?: number, max?: number) — Five stars for a quick rating.',
+    )
+    // Inside "Component Signatures", after the shipped catalogue and before the functions.
+    const lastShipped = text.indexOf('GenImageSet(urls: string[]')
+    const mineAt = text.indexOf('StarRating(label: string')
+    const functionsAt = text.indexOf('## Built-in Functions')
+    expect(mineAt).toBeGreaterThan(lastShipped)
+    expect(mineAt).toBeLessThan(functionsAt)
+    expect(text).not.toContain('genui:components')
+  })
+
+  test('the catalogue is empty when nothing registered, never a bare heading', () => {
+    expect(componentCatalogue([])).toBe('')
+  })
+
+  test('withdrawing the registration takes the line away again', () => {
+    const service = createGenuiHostService()
+    const remove = service.addComponents([star])
+    expect(openuiPrompt(service)).toContain('StarRating(')
+    remove()
+    expect(openuiPrompt(service)).not.toContain('StarRating')
+  })
+})
+
+describe('fillAnchor', () => {
+  test('replaces the marker with the blocks, one paragraph break either side', () => {
+    expect(fillAnchor('a\n\n<!-- x -->\n\nb', '<!-- x -->', ['one', 'two'])).toBe('a\n\none\n\ntwo\n\nb')
+  })
+
+  test('leaves the fallback when nothing registered', () => {
+    expect(fillAnchor('a\n\n<!-- x -->\n\nb', '<!-- x -->', [], 'nothing')).toBe('a\n\nnothing\n\nb')
+  })
+
+  test('an empty anchor with no fallback leaves no hole behind', () => {
+    expect(fillAnchor('a\n\n<!-- x -->\n\nb', '<!-- x -->', [])).toBe('a\n\nb')
+  })
+
+  test('an asset without the marker is returned untouched', () => {
+    expect(fillAnchor('plain', '<!-- x -->', ['one'], 'nothing')).toBe('plain')
   })
 })

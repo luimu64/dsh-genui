@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { defineComponent } from "@openuidev/react-lang";
-import { openuiLibrary } from "@openuidev/react-ui";
 import { Button } from "@deepseek-ai/dsh-client-ui-primitives";
-import { DEFAULT_WORKFLOWS, QUALITY_IDS } from "../shared/models";
-import { batchColumns, batchSlots, batchVersion, subscribeBatch } from "./batches";
+import { registerComponents } from "./components";
+import { batchColumns, currentFrameSource, type FrameSlot } from "./frames";
 import { ImagePlaceholder } from "./pending";
 import { useReplay } from "./replay";
 import { z } from "zod/v4";
@@ -376,7 +375,7 @@ function useSettled(delay = 400): boolean {
 const GenImage = defineComponent({
   name: "GenImage",
   description:
-    "Shows the image produced by the generate_image query. Pass query.url and query.prompt.",
+    "One picture at an image URL, with a full-size viewer and a download action.",
   props: z.object({
     url: z.string(),
     prompt: z.string(),
@@ -401,15 +400,8 @@ const GenImage = defineComponent({
   },
 });
 
-type SlotView = { url: string; error?: string; missing?: boolean; prompt?: string };
-
-/** The batch a set of urls belongs to, when it was queued frame by frame. */
-function batchOf(urls: unknown): string | null {
-  const first = Array.isArray(urls) ? urls[0] : null;
-  if (!first || typeof first !== "object") return null;
-  const key = (first as { batch?: unknown }).batch;
-  return typeof key === "string" ? key : null;
-}
+/** One cell of a set: the renderer's own vocabulary, filled in by a frame source. */
+type SlotView = FrameSlot & { url: string };
 
 const noSubscribe = () => () => {};
 const noVersion = () => 0;
@@ -417,47 +409,48 @@ const noVersion = () => 0;
 /**
  * One entry per requested image, finished or not, in request order.
  *
- * A running batch reads its slots from the batch store and subscribes to it, so each
- * picture appears the moment that image is done — without re-parsing the answer or
- * re-running its query for every frame. A set that is not a live batch (a stored answer,
- * or a reply written before progressive rendering) falls back to the urls it carries, and
- * an entry with no url there is a frame that was never rendered: keeping the entry paints
- * the hole in the right cell instead of silently shortening the grid.
+ * While a batch is filling, the slots come from the frame source the image bundle registered
+ * and this component subscribes to it, so each picture appears the moment that image is done -
+ * without re-parsing the answer or re-running its query for every frame. With no image bundle
+ * installed nothing is registered, and a set is simply the urls the program carries: a
+ * picture at a URL still paints, an empty entry is a frame that was never rendered, and the
+ * hole stays in the right cell instead of silently shortening the grid.
  */
 function useBatchSlots(urls: unknown): SlotView[] {
-  const key = batchOf(urls);
+  const source = currentFrameSource();
+  const key = source?.keyOf(urls) ?? null;
+  const live = source && key ? source.slots(key) : null;
   useSyncExternalStore(
-    key ? (listener) => subscribeBatch(key, listener) : noSubscribe,
-    key ? () => batchVersion(key) : noVersion,
-    key ? () => batchVersion(key) : noVersion,
+    source && key ? (listener) => source.subscribe(key, listener) : noSubscribe,
+    source && key ? () => source.version(key) : noVersion,
+    source && key ? () => source.version(key) : noVersion,
   );
-  const live = key ? batchSlots(key) : null;
   if (live) {
     return live.map((slot) => ({
       url: slot.url ?? "",
       error: slot.error,
-      missing: slot.status === "missing",
+      missing: slot.missing,
       prompt: slot.prompt,
     }));
   }
   const list = Array.isArray(urls) ? urls : [];
-  return list.flatMap((entry) => {
+  return list.map((entry) => {
     const url =
       typeof entry === "string"
         ? entry
         : entry && typeof entry === "object" && typeof (entry as { url?: unknown }).url === "string"
           ? ((entry as { url: string }).url ?? "")
           : "";
-    return [{ url, missing: !url }];
+    return { url, missing: !url };
   });
 }
 
 const GenImageSet = defineComponent({
   name: "GenImageSet",
   description:
-    "Shows every image of a batched generate_image query as a grid. Pass query.images and query.prompt.",
+    "Several pictures as one grid; each opens in the same viewer.",
   props: z.object({
-    // `generate_image` returns `images` as [{url, file}]; older stored answers carry plain
+    // A query that renders a set returns `images` as [{url, file}]; older stored answers carry plain
     // strings. Both shapes are accepted and normalised, so neither has to be rewritten.
     //
     // A frame of a batch still in flight may also carry `batch`/`index`/`total`. The extra
@@ -579,7 +572,7 @@ const GenImageSet = defineComponent({
                   aria-label={`image ${i + 1} failed`}
                 >
                   could not render this picture
-                  {/* The host's own words, not ours: a rejected frame and a stopped ComfyUI
+                  {/* The host's own words, not ours: a rejected frame and a backend that is down
                       look identical as "failed" and send the reader somewhere different. */}
                   <span className="genimg-note">{shortError(slot.error)}</span>
                 </div>
@@ -688,152 +681,18 @@ const ImageGalleryCards = defineComponent({
   },
 });
 
-export const genuiLibrary = openuiLibrary.extend!({
-  components: {
-    add: [
-      { component: GenImage, slots: ["Card.children"] },
-      { component: GenImageSet, slots: ["Card.children"] },
-    ],
-    override: [ImageBlockCard, ImageCard, ImageGalleryCards],
-  },
-});
-
 /**
- * The two side effects the model may request. Declaring them here is what teaches the
- * generated prompt the `Query("generate_image", ...)` syntax - without it the model invents
- * a `generate_image(...)` function call that never reaches the host.
- *
- * This is the **default** tool surface: the workflows a fresh install exposes. An opt-in
- * workflow is not described here - a workflow's lane, presets and prompt conventions live in
- * its own prompt section (`assets/prompt-anime.md` is the shipped example), which the host
- * appends only while that workflow is enabled. The enum ids come from `src/shared/models.ts`,
- * the vocabulary both halves share; which workflows exist is the registry's business. See
- * docs/add-workflow.md.
+ * This bundle's own components, registered through the same path a companion uses: two new
+ * components that join "Card.children", and three shipped ones re-pointed at the frame above.
+ * The prompt lines for these five are in "assets/prompt-core.txt" — they are the catalogue every
+ * deployment gets, which is the one thing a companion's components do not have.
  */
-export const genuiPromptOptions = {
-  tools: [
-    {
-      name: "generate_image",
-      description:
-        "Render images with the local ComfyUI. Use only when the user asks to see, draw, sketch, render or imagine a picture, never to decorate text. Emit at most one per program. Lane \"real\" covers photographs, products, real places and realistic people: one natural-language sentence describing camera, light and lens. quality: \"fast\" (default) is a distilled model tuned for seconds per frame - use it for exploration, chat, and anything the user did not ask to be good. quality: \"high\" swaps in the undistilled checkpoint at its published settings (50 steps at CFG 3, 992x1504) and takes one to four minutes per image plus a cold model load - use it when the user says high quality, best, final, print, or asks for one image they care about. upscale adds a second sampler pass over a latent upscaled by that factor (true = 1.5, up to 2): roughly doubles the time and the file size for real extra detail - use it for wallpaper, print, or when the reader asks for sharper or bigger. count renders 1-8 variations, one after another, so each frame appears in the grid as it lands; use 2-4 for \"options\"/\"variations\"/\"some\", never more than 4 unless asked.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          prompt: {
-            type: "string",
-            description:
-              "One natural-language sentence: subject, setting, light, and a lens if it helps. Optional when prompts lists one per picture.",
-          },
-          lane: {
-            type: "string",
-            enum: [...DEFAULT_WORKFLOWS],
-            description: "Which workflow to drive. Defaults to real.",
-          },
-          quality: {
-            type: "string",
-            enum: [...QUALITY_IDS],
-            description:
-              "fast = distilled lanes, seconds per image (default). high = undistilled checkpoints at published settings, minutes per image.",
-          },
-          upscale: {
-            type: "number",
-            description:
-              "Hires factor, 1.05-2 (true means 1.5): a second sampler pass over an upscaled latent. Roughly doubles the time for real extra detail. Use for wallpaper, print, or 'sharper'/'bigger'.",
-          },
-          count: {
-            type: "number",
-            description:
-              "How many images to render, 1-8. Defaults to 1. Frames are queued one at a time and appear as each finishes, so the reader sees the first picture after roughly one render, not after the whole set. Ignored when prompts lists more than one entry.",
-          },
-          prompts: {
-            type: "array",
-            description:
-              'One prompt per picture, when the frames should differ: "four catgirls, one per city" means prompts: ["catgirl in Tokyo at night", "catgirl in Lagos at noon", ...]. The host varies the seed on its own, so leave this out for the default batch of one prompt rendered at different seeds. Length sets the batch size (1-8); each frame is captioned with its own prompt.',
-          },
-          steps: {
-            type: "number",
-            description:
-              "Omit for the lane/quality default (real 4 fast / 50 high). Only override to trade speed for detail.",
-          },
-          nsfw: {
-            type: "boolean",
-            description:
-              "Set true for nude, sexual or explicit requests: the template's content negatives are dropped so the prompt is not overwritten. Always accompany it with adult subject tags.",
-          },
-          width: { type: "number", description: "Defaults to 832 (992 on the high real lane)." },
-          height: { type: "number", description: "Defaults to 1216 (1504 on the high real lane)." },
-        },
-        // Either prompt or prompts: a batch that lists one prompt per picture has no
-        // single prompt to repeat, and requiring one failed the query before it queued.
-        required: [],
-      },
-      outputSchema: {
-        type: "object",
-        properties: {
-          url: {
-            type: "string",
-            description: "URL of the first image, a /genui/images path. Pass to GenImage.",
-          },
-          images: {
-            type: "array",
-            description: "Every image of the batch as {url, file}. Pass query.images to GenImageSet.",
-          },
-          file: { type: "string", description: "File name of the first image; pass to edit_image as source." },
-          prompt: { type: "string" },
-          lane: { type: "string" },
-          quality: { type: "string" },
-          upscale: { type: "number" },
-          seed: { type: "number" },
-          steps: { type: "number" },
-        },
-        required: ["url", "prompt"],
-      },
-    },
-    {
-      name: "edit_image",
-      description:
-        "Change one thing in an image that already exists on disk: the last render, a render from earlier in the conversation, or a file the user names. Runs a reference-conditioned editing model, which repaints the frame from the source, so everything you do not mention is meant to survive. Use it when the user says change, make it, remove, add, recolor, swap or 'same but' about a picture that already exists. One clear instruction per pass; chain passes for several changes. It cannot invent explicit content the source does not already contain - for a new explicit scene use generate_image instead.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          prompt: {
-            type: "string",
-            description:
-              "One natural-language instruction, e.g. 'Change her jacket to red leather, keep everything else identical.'",
-          },
-          source: {
-            type: "string",
-            description:
-              "File name of the image to edit. Omit to edit the newest render in the image directory. Use one of the file names the system prompt lists under 'Renders in this conversation' - that list holds every image of the conversation, newest first.",
-          },
-        },
-        required: ["prompt"],
-      },
-      outputSchema: {
-        type: "object",
-        properties: {
-          url: { type: "string", description: "URL of the edited image. Pass to GenImage." },
-          file: { type: "string" },
-          prompt: { type: "string" },
-          lane: { type: "string" },
-          seed: { type: "number" },
-        },
-        required: ["url", "prompt"],
-      },
-    },
-  ],
-  toolExamples: [
-    `root = Stack([card])
-query = Query("generate_image", {prompt: "a red fox crossing fresh snow at dawn, 200mm, soft overcast light", lane: "real"}, {url: ""})
-card = Card([GenImage(query.url, "A red fox in fresh snow")])`,
-    `root = Stack([card])
-query = Query("generate_image", {prompt: "a baker pulling bread from a stone oven, warm morning light, 35mm", lane: "real", quality: "high"}, {url: ""})
-card = Card([GenImage(query.url, "Baker at a stone oven, high quality")])`,
-    `root = Stack([card])
-query = Query("generate_image", {prompt: "a ceramic teapot on a linen cloth, window light, 50mm macro", lane: "real", count: 4}, {url: "", images: []})
-card = Card([GenImageSet(query.images, "Ceramic teapot, four variations")])`,
-    `root = Stack([card])
-query = Query("edit_image", {prompt: "Change her jacket to red leather, keep everything else identical."}, {url: ""})
-card = Card([GenImage(query.url, "Jacket recoloured to red leather")])`,
-  ],
-};
+export const builtinComponents = [
+  { component: GenImage, slots: ["Card.children"] },
+  { component: GenImageSet, slots: ["Card.children"] },
+  { component: ImageBlockCard, override: true },
+  { component: ImageCard, override: true },
+  { component: ImageGalleryCards, override: true },
+];
+
+registerComponents(builtinComponents);

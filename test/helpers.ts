@@ -1,33 +1,26 @@
 /**
- * Shared test fixtures. `Config` is the resolved config a running bundle receives, so every
- * key is present; tests override only the ones they care about.
+ * Shared fixtures for the renderer bundle.
  *
- * `workflows` is a volatile field in production (the Settings row writes it live), so the
- * fixture wraps a plain list in a reference; tests that need to *change* it can hold on to
- * the reference they passed.
+ * `Config` is the resolved config a running bundle receives, so every key is present;
+ * `defaultOn` is volatile in production (the Settings row writes it live), so the fixture
+ * wraps a plain boolean in a reference.
  */
-import { createVolatile, type Volatile } from '@deepseek-ai/cosmokit'
+import { createVolatile } from '@deepseek-ai/cosmokit'
 import type { Config } from '../src/host/config'
+import type { ModeStore } from '../src/host/mode'
 
-export type TestConfigOverrides = Partial<Omit<Config, 'workflows' | 'defaultOn'>> & {
-  workflows?: string[] | Volatile<string[]>
-  defaultOn?: boolean | Volatile<boolean>
+export function testConfig(overrides: { defaultOn?: boolean } = {}): Config {
+  return { defaultOn: createVolatile(overrides.defaultOn ?? false) }
 }
 
-export function testConfig(overrides: TestConfigOverrides = {}): Config {
-  const { workflows, defaultOn, ...rest } = overrides
+/** A mode store backed by a set, for assemblies that only need "on" or "off". */
+export function modeStore(on: Set<string>, defaultOn = false): ModeStore {
   return {
-    comfyBase: 'http://127.0.0.1:8188',
-    imagesDir: '/nonexistent/genui-images',
-    workflowDir: '/nonexistent/genui-workflows',
-    maxBatch: 8,
-    pollMs: 750,
-    minPngBytes: 30_000,
-    defaultOn: typeof defaultOn === 'boolean' ? createVolatile(defaultOn) : defaultOn ?? createVolatile(false),
-    filePrefix: 'genui',
-    // Tests exercise the full surface; the *default* install is ['real'] and is covered in
-    // config.test.ts and the opt-in cases in service.test.ts.
-    workflows: Array.isArray(workflows) ? createVolatile(workflows) : workflows ?? createVolatile(['real', 'anime']),
-    ...rest,
+    file: '/tmp/genui-mode.json',
+    defaultOn,
+    isOn: (id) => on.has(id),
+    set: (id, next) => void (next ? on.add(id) : on.delete(id)),
+    sessions: () => [...on],
+    offSessions: () => [],
   }
 }

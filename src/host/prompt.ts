@@ -17,19 +17,61 @@
  * tools and variables. A plain listener adds the section before that rewrite and loses it; a
  * prepended one appends after the rewrite and survives. With no such bundle in the profile
  * the result is identical - the section is simply appended to the ordinary assembly.
+ *
+ * This bundle knows the answer format, not the tools a companion bundle serves. Those are
+ * registered as blocks (see `registry.ts`) and poured into the anchors the committed assets
+ * carry, so a deployment without image generation gets a prompt that says exactly that.
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 
-import { listRenders } from './images'
 import type { ModeStore } from './mode'
-import { workflowsOf, type Config } from './config'
-import type { WorkflowRegistry } from './workflows'
+import type { Config } from './config'
+import type { ComponentDoc, GenuiHostService, PromptAnchor } from './registry'
 
 const SECTION = 'genui:openui'
-const CONTEXT = 'genui:renders'
+
+/** Where a companion bundle's text lands in the committed assets. */
+const ANCHORS = {
+  tools: '<!-- genui:tools -->',
+  examples: '<!-- genui:examples -->',
+  rules: '<!-- genui:rules -->',
+  components: '<!-- genui:components -->',
+} as const
+
+/**
+ * The catalogue subsection a companion's components join. Nothing is written when nothing is
+ * registered: an empty heading above no components reads as a broken prompt, and the catalogue
+ * is exactly where a model looks for something to call.
+ */
+export const COMPONENT_HEADING = '### Components from other bundles'
+
+export function componentCatalogue(docs: readonly ComponentDoc[]): string {
+  if (docs.length === 0) return ''
+  const lines = docs.map((doc) => `${doc.signature} — ${doc.description}`)
+  return [
+    COMPONENT_HEADING,
+    '',
+    'Ordinary components from bundles installed beside this one: same syntax, same action rules.',
+    'Use one when it is the honest shape for the answer.',
+    '',
+    ...lines,
+  ].join('\n')
+}
+
+/**
+ * What "Available Tools" says when nothing registered a tool.
+ *
+ * A section that promises a catalogue and then shows none reads as a broken prompt, and a
+ * model will invent a tool name to fill it. Saying it plainly is the honest version: there is
+ * nothing to Query here.
+ */
+export const NO_TOOLS = [
+  'This deployment exposes no Query tools. A `Query(...)` would resolve to nothing, so build',
+  'the answer from what you already know and from ordinary components.',
+].join('\n')
 
 /** Read one prompt asset, from the built bundle or from source. */
 function asset(name: string): string {
@@ -42,30 +84,61 @@ function asset(name: string): string {
   return readFileSync(file, 'utf8').trimEnd()
 }
 
-/**
- * The section the model reads, assembled from parts:
- *
- * - `prompt-core.txt` — the OpenUI catalogue and the tool surface of the default workflows;
- * - one section per enabled workflow that ships one (`assets/prompt-anime.md` today);
- * - `prompt-rules.md` — the hand-written harness rules, always last.
- *
- * The registry owns which sections exist, so a new workflow brings its own prompt text
- * without an edit here.
- */
-export function openuiPrompt(sections: readonly string[] = []): string {
-  const parts = [asset('prompt-core.txt'), ...sections.filter((text) => text.trim() !== ''), asset('prompt-rules.md')]
-  return `${parts.map((part) => part.trimEnd()).join('\n\n')}\n`
+/** The part of the host service the prompt reads. */
+export type PromptSource = Pick<
+  GenuiHostService,
+  'blocks' | 'components' | 'contexts' | 'addContext' | 'addPromptBlock' | 'addComponents'
+>
+
+const EMPTY_SOURCE: PromptSource = {
+  blocks: () => [],
+  components: () => [],
+  contexts: () => [],
+  addContext: () => () => {},
+  addPromptBlock: () => () => {},
+  addComponents: () => () => {},
 }
 
 /**
- * The renders this conversation can still edit, newest first. Synchronous on purpose: the
- * prompt is assembled synchronously per request.
+ * Replace one anchor with the blocks registered for it. An anchor nothing registered leaves
+ * `fallback` behind, so the section around it still reads as a sentence.
  */
-export function renderList(imagesDir: string, limit = 20): string {
-  const renders = listRenders(imagesDir, limit)
-  if (renders.length === 0) return ''
-  const lines = renders.map((render, index) => `- ${render.file}${index === 0 ? ' (newest)' : ' (older)'}`)
-  return ['### Renders in this conversation', '', ...lines].join('\n')
+export function fillAnchor(text: string, marker: string, blocks: readonly string[], fallback = ''): string {
+  const at = text.indexOf(marker)
+  if (at < 0) return text
+  const body = (blocks.join('\n\n') || fallback).trim()
+  // One paragraph break on either side, whether the anchor stayed empty or not: a marker
+  // line removed without this leaves three blank lines where a section should breathe once.
+  const before = text.slice(0, at).replace(/\n+$/, '')
+  const after = text.slice(at + marker.length).replace(/^\n+/, '')
+  return body === '' ? `${before}\n\n${after}` : `${before}\n\n${body}\n\n${after}`
+}
+
+/**
+ * The section the model reads, assembled from parts:
+ *
+ * - `prompt-core.txt` — the OpenUI language and catalogue, with the tool catalogue and the
+ *   examples open for blocks;
+ * - every registered `append` block — a workflow's own conventions live here;
+ * - `prompt-rules.md` — the hand-written harness rules, always last.
+ *
+ * The registry owns which blocks exist, so a companion bundle brings its own prompt text
+ * without an edit here, and a deployment without it simply has none.
+ */
+export function openuiPrompt(source: PromptSource = EMPTY_SOURCE): string {
+  const catalogue = componentCatalogue(source.components())
+  const core = fillAnchor(
+    fillAnchor(
+      fillAnchor(asset('prompt-core.txt'), ANCHORS.tools, source.blocks('tools'), NO_TOOLS),
+      ANCHORS.examples,
+      source.blocks('examples'),
+    ),
+    ANCHORS.components,
+    catalogue ? [catalogue] : [],
+  )
+  const rules = fillAnchor(asset('prompt-rules.md'), ANCHORS.rules, source.blocks('rules'))
+  const parts = [core, ...source.blocks('append'), rules]
+  return `${parts.map((part) => part.trimEnd()).join('\n\n')}\n`
 }
 
 /** The agent behind one assembly, when the caller supplied it. */
@@ -78,13 +151,11 @@ export function registerAgentPrompt(
   ctx: Context,
   config: Config,
   mode: ModeStore,
-  registry: WorkflowRegistry,
+  service: GenuiHostService,
 ): void {
-  // Built per assembly rather than captured: the enabled set is a volatile field, and a
-  // workflow may also change its prompt section on disk. Three small file reads per model
-  // request is cheaper than a cache that can serve last week's prompt.
-  const promptNow = (): string => openuiPrompt(registry.prompts(workflowsOf(config)))
-
+  // Built per assembly rather than captured: the mode, the enabled workflows and the renders
+  // on disk all move while the harness runs, and three small file reads per model request is
+  // cheaper than a cache that can serve last week's prompt.
   ctx.on('system-prompt/assemble', async (assembly, context, next) => {
     const built = await next()
     const agent = agentOf(context)
@@ -94,11 +165,11 @@ export function registerAgentPrompt(
     if (!sessionId || !mode.isOn(sessionId)) return built
     if (built.sections.some((section) => section.name === SECTION)) return built
 
-    const renders = renderList(config.imagesDir)
+    const contexts = service.contexts().map((entry) => ({ name: `genui:${entry.id}`, text: entry.text }))
     return {
       ...built,
-      sections: [...built.sections, { name: SECTION, text: promptNow() }],
-      contexts: renders ? [...built.contexts, { name: CONTEXT, text: renders }] : built.contexts,
+      sections: [...built.sections, { name: SECTION, text: openuiPrompt(service) }],
+      contexts: contexts.length > 0 ? [...built.contexts, ...contexts] : built.contexts,
     }
   }, { prepend: true } as any)
 }

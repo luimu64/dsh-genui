@@ -6,11 +6,12 @@
  * the token footer, and the process disclosure read, and only the painting changes. See
  * `docs/client-contract.md` for why the exclusive-Definition design was dropped.
  */
-import { useCallback, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { Renderer } from '@openuidev/react-lang'
 import { MarkdownText, type MarkdownLabels } from '@deepseek-ai/dsh-client-ui-primitives'
-import { genuiLibrary } from './library'
-import { makeToolProvider } from './toolProvider'
+import { componentLibrary, subscribeComponents } from './components'
+import './library'
+import { makeToolProvider } from './tools'
 import { friendlyErrors, repairProgram } from './repair'
 import { runAction, type ActionEventLike, type ComposerInput } from './actions'
 import { ReplayContext } from './replay'
@@ -63,20 +64,35 @@ function QueryThinking(): ReactNode {
 export function OpenUIRow({ node, groupPart, sessionId, inputActions }: OpenUIRowProps): ReactNode {
   const data = node.data
   const key = stepKey(data)
-  // Read once per paint: a step that streamed in this page session may queue ComfyUI, a step
+  // Read once per paint: a step that streamed in this page session may queue real work, a step
   // that came out of the log may only display what the cache already holds.
   const live = observeStep(key, data.status)
   const text = assistantText(data.blocks)
   const mode = rowMode(data, text, live)
 
+  // A companion may add a component while an answer is on screen: the library is a derived
+  // object that changes identity only when the set of contributions does, which is also what
+  // makes the renderer re-parse instead of painting the old catalogue.
+  const library = useSyncExternalStore(subscribeComponents, componentLibrary, componentLibrary)
+
   const [allow, setAllow] = useState(false)
   const [retries, setRetries] = useState(0)
   const [errors, setErrors] = useState('')
   const allowGeneration = live || allow
-  const provider = useMemo(
-    () => makeToolProvider({ allowGeneration, isTail: () => isTailStep(key) }),
+  // One permission, read by the provider and by the components: a live turn may queue work,
+  // and a stored turn may only display what is already on disk until its own retry is clicked.
+  const replay = useMemo(
+    () => ({
+      allowGeneration,
+      mayGenerate: () => allowGeneration || isTailStep(key),
+      retry: () => {
+        setAllow(true)
+        setRetries((n) => n + 1)
+      },
+    }),
     [allowGeneration, key],
   )
+  const provider = useMemo(() => makeToolProvider(replay), [replay])
 
   // Every action a drawn control can fire lands here: `@ToAssistant`, `@OpenUrl`, a bare
   // Button's own label, a card's action, and the form-state payload a Form button carries.
@@ -112,26 +128,14 @@ export function OpenUIRow({ node, groupPart, sessionId, inputActions }: OpenUIRo
         </div>
       ) : null}
       {mode === 'program' ? (
-        <ReplayContext.Provider
-          value={{
-            allowGeneration,
-            // The same permission the provider computes, read at paint time: the newest
-            // answer dispatches even when it is a replay, so its frames have to say
-            // "rendering" rather than "not saved on this machine".
-            mayGenerate: () => allowGeneration || isTailStep(key),
-            retry: () => {
-              setAllow(true)
-              setRetries((n) => n + 1)
-            },
-          }}
-        >
+        <ReplayContext.Provider value={replay}>
           <ImageWaitProvider>
             <div className="genui-root">
               <Renderer
                 // A retry has to re-evaluate the program's queries, which only happens on a
                 // fresh mount.
                 key={retries}
-                library={genuiLibrary}
+                library={library}
                 response={repairProgram(programText(text))}
                 toolProvider={provider}
                 onAction={onAction}

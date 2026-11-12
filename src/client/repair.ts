@@ -25,6 +25,32 @@ const TEXT_VARIANTS = new Set(["text", "number"]);
 /** Calls this module knows how to repair. Everything else is copied through untouched. */
 const REPAIRABLE = ["Card", "Text", "Query", "Mutation", "Callout"];
 
+/**
+ * Component names the model spells the ordinary English way.
+ *
+ * `MarkDownRenderer` ships with an interior capital the word does not have — it is the
+ * library's spelling, not a typo of ours — and a model asked for a markdown renderer writes
+ * `MarkdownRenderer`. The parser does not guess: it reports `Unknown component
+ * "MarkdownRenderer"`, and because the call is a leaf whose value is the whole prose of the
+ * answer, what the reader gets is a red "could not be drawn" panel and no text at all. That
+ * is the one mistake in this file worth repairing by name rather than by slot: the arguments
+ * are already right, only the identifier the library is indexed by is wrong.
+ *
+ * Kept as a table instead of a case-insensitive lookup so a companion bundle's component can
+ * never be reached by misspelling it: every entry here names a shipped component, and
+ * `repair.test.ts` fails if one of them stops resolving.
+ */
+export const COMPONENT_ALIASES: Record<string, string> = {
+  MarkdownRenderer: "MarkDownRenderer",
+  MarkdownRender: "MarkDownRenderer",
+  // The same class of slip: the library splits the compound, English does not.
+  CheckboxGroup: "CheckBoxGroup",
+  CheckboxItem: "CheckBoxItem",
+};
+
+/** Every call the walk has to look at, by either spelling. */
+const REPAIRABLE_CALLS = [...REPAIRABLE, ...Object.keys(COMPONENT_ALIASES)];
+
 function unquote(token: string): string | null {
   const t = token.trim();
   if (t.length < 2) return null;
@@ -274,9 +300,15 @@ function walk(
           const inner = walk(text.slice(k + 1, close), literals, names);
           changed = changed || inner.changed;
           const args = splitArgs(inner.text);
-          const repaired = repairCall(name, args, literals, names);
+          // A member access is a value, not a component: `state.markdownRenderer(...)` is
+          // the model's own name for something, and renaming it would address a symbol the
+          // program never defined.
+          const member = out.replace(/\s+$/, "").endsWith(".");
+          const called = member ? name : COMPONENT_ALIASES[name] ?? name;
+          if (called !== name) changed = true;
+          const repaired = repairCall(called, args, literals, names);
           if (repaired) changed = true;
-          out += `${name}(${(repaired ?? args).join(", ")})`;
+          out += `${called}(${(repaired ?? args).join(", ")})`;
           i = close + 1;
           continue;
         }
@@ -291,15 +323,38 @@ function walk(
   return { text: out, changed };
 }
 
+/** A call head: `TextContent(`. What a component call starts with, and prose does not. */
+const CALL_HEAD = /^[A-Z][A-Za-z0-9_]*\s*\(/;
+
+/**
+ * A one-line answer with nothing binding it to the entry point: `TextContent("Two.")`.
+ *
+ * The format allows a reply that is a single component, and a model writes it as the call
+ * alone - the statement in front of it reads as ceremony when there is only one element. The
+ * renderer has no entry point to paint without `root`, so that answer arrived as an empty
+ * row, and the row's own gate showed it as raw source rather than an interface. The call is
+ * already right; the repair is the missing statement and nothing else. Only a body that is
+ * exactly one balanced call is touched, so prose that happens to open a bracket is not one.
+ */
+export function rootlessCall(program: string): string | null {
+  const text = program.trim();
+  if (!CALL_HEAD.test(text)) return null;
+  const open = text.indexOf("(");
+  if (closingParen(text, open) !== text.length - 1) return null;
+  return `root = ${text}`;
+}
+
 /** Returns the program unchanged when it needs no repair (identity for current output). */
 export function repairProgram(program: string): string {
   if (!program) return program;
+  // A bare call becomes a program first, so the rest of the walk reads ordinary statements.
+  const rooted = rootlessCall(program) ?? program;
   // Cheap gate: only programs that call something repairable are worth walking.
-  if (!REPAIRABLE.some((name) => program.includes(`${name}(`))) return program;
-  const literals = literalStatements(program);
-  const result = walk(program, literals, statementNames(program));
+  if (!REPAIRABLE_CALLS.some((name) => rooted.includes(`${name}(`))) return rooted;
+  const literals = literalStatements(rooted);
+  const result = walk(rooted, literals, statementNames(rooted));
   // A program the current library already accepts must come back byte-identical.
-  return result.changed ? result.text : program;
+  return result.changed ? result.text : rooted;
 }
 
 type UiError = string | { code?: string; message?: string; component?: string; path?: string };

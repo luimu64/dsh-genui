@@ -1,15 +1,15 @@
 /**
  * Whether the turn being painted is allowed to create new pictures.
  *
- * Every stored answer replays its `Query("generate_image", …)` when it is rendered. That
- * was harmless while the only cost was a cache miss, but it is the whole reason opening a
- * conversation re-ran old batches: a miss went straight to ComfyUI. Generation is now a
+ * Every stored answer replays its `Query(...)` calls when it is rendered. That was harmless
+ * while the only cost was a cache miss, but it is the whole reason opening a conversation
+ * re-ran old work: a miss went straight to whatever served the tool. Doing that work is now a
  * permission the turn holds, not an assumption a component makes:
  *
- *  - the turn the user is actually producing (`live`) may render;
+ *  - the turn the user is actually producing (`live`) may do the work;
  *  - a stored turn may only *display* what is already on disk. A frame that is genuinely
  *    gone is painted as unavailable, and `retry()` is the explicit request that turns that
- *    turn's generation back on — for that turn only.
+ *    turn's tool work back on — for that turn only.
  *
  * The scope is a React context rather than a module-level "current turn" slot, because
  * every turn mounts its renderer at once: a process-wide claim was decided by whichever

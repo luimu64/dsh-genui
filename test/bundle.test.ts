@@ -110,8 +110,15 @@ describe('client bundle', () => {
     expect(typeof exports.apply).toBe('function')
   })
 
-  /** The context surface the plugin touches: effects, slots, and optional services. */
-  function fakeContext(registrations: { options: any; component: unknown }[], services: string[] = []) {
+  /**
+   * The context surface the plugin touches: effects, slots, the service it publishes, and the
+   * optional services it borrows.
+   */
+  function fakeContext(
+    registrations: { options: any; component: unknown }[],
+    services: string[] = [],
+    provided: Record<string, unknown> = {},
+  ) {
     const slots = {
       inject: (_name: string, callback: () => void) => callback(),
       register: (options: unknown, component: unknown) => {
@@ -136,6 +143,11 @@ describe('client bundle', () => {
         fn()
         return () => {}
       },
+      provide: (name: string, value: unknown) => {
+        provided[name] = value
+        return () => {}
+      },
+      provided,
       slots,
       effects,
       inject: (deps: string[], callback: (scoped: unknown) => void) => {
@@ -157,6 +169,20 @@ describe('client bundle', () => {
     const composed = fakeContext([], ['sessions'])
     exports.apply(composed)
     expect(composed.effects).toHaveLength(1)
+  })
+
+  test('publishes the extension surface a companion registers into', () => {
+    const { exports } = materialize()
+    const context = fakeContext([])
+    exports.apply(context)
+    const service = context.provided.genuiClient as {
+      registerQueryTools?: unknown
+      registerComponents?: unknown
+      registerFrameSource?: unknown
+    }
+    expect(typeof service.registerQueryTools).toBe('function')
+    expect(typeof service.registerComponents).toBe('function')
+    expect(typeof service.registerFrameSource).toBe('function')
   })
 
   test('shadows the assistant row instead of adding a second one', () => {
@@ -213,7 +239,7 @@ describe('client bundle', () => {
     ])
     expect(withSettings[1].options).toMatchObject({
       name: 'settings.general.item',
-      id: 'genui-workflows',
+      id: 'genui-answer-format',
       order: 40,
     })
     expect(typeof withSettings[1].component).toBe('function')

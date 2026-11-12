@@ -9,6 +9,7 @@
  * projection intact; only the pixels change.
  */
 import type { AssistantBlock } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { rootlessCall } from './repair'
 
 /** The one row the model's answer arrives in. */
 export interface AssistantRowData {
@@ -21,7 +22,7 @@ export interface AssistantRowData {
 /**
  * Steps that streamed in this page session. A step observed running at least once is being
  * produced now; a step that is already settled the first time it is painted came out of the
- * session log, and replay must not queue ComfyUI for it.
+ * session log, and replay must not queue work for it.
  *
  * The fallback is the retry control on a missing frame, exactly as for a provider that never
  * streams: a turn that is wrongly judged historical costs one click, never a silent re-render.
@@ -82,6 +83,21 @@ export function reasoningText(blocks: readonly AssistantBlock[]): string {
 const STATEMENT = /^\s*(?:root|[A-Za-z_$][\w$]*)\s*=/
 
 /**
+ * A component call at the start of the text: `TextContent(`.
+ *
+ * A one-element answer is written as the call alone (see `rootlessCall` in repair.ts), so it
+ * has no statement for the pattern above to find. Without this the row judged every such
+ * answer prose and painted the source, which is the one thing an interface must never do.
+ */
+const CALL_HEAD = /^[A-Z][A-Za-z0-9_]*\s*\(/
+
+/** Does this text begin with something a program can begin with? */
+function startsProgram(text: string): boolean {
+  const trimmed = text.trimStart()
+  return STATEMENT.test(trimmed) || CALL_HEAD.test(trimmed)
+}
+
+/**
  * The program inside an answer, with the wrappers a model adds anyway removed: a markdown
  * fence around it, or a sentence of introduction above it. A fence body is preferred when it
  * holds the program, because that is where the model put it; otherwise the answer is cut at
@@ -91,24 +107,25 @@ const STATEMENT = /^\s*(?:root|[A-Za-z_$][\w$]*)\s*=/
  */
 export function programText(text: string): string {
   const fenced = /```[A-Za-z0-9_-]*[ \t]*\r?\n([\s\S]*?)```/.exec(text)
-  if (fenced && STATEMENT.test(fenced[1].trim())) return fenced[1].trim()
+  if (fenced && startsProgram(fenced[1].trim())) return fenced[1].trim()
 
   const lines = text.split('\n')
-  const start = lines.findIndex((line) => /^\s*root\s*=/.test(line) || STATEMENT.test(line))
+  const start = lines.findIndex((line) => /^\s*root\s*=/.test(line) || startsProgram(line))
   if (start <= 0) return text.trim()
   return lines.slice(start).join('\n').trim()
 }
 
 /** Does this answer look like an openui-lang program rather than prose? */
 export function looksLikeOpenUI(text: string): boolean {
-  return /^\s*root\s*=/m.test(programText(text))
+  const program = programText(text)
+  return /^\s*root\s*=/m.test(program) || rootlessCall(program) !== null
 }
 
 export type RowMode = 'building' | 'partial' | 'program' | 'text' | 'empty' | 'none'
 
 /** Has the answer started looking like a program yet? Used only to pick the placeholder. */
 export function programStarted(text: string): boolean {
-  return /^\s*(?:root|[A-Za-z_$][\w$]*)\s*=/.test(text.trimStart())
+  return startsProgram(text)
 }
 
 /**

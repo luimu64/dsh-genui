@@ -4,7 +4,8 @@ import type {} from '@deepseek-ai/dsh-client-ui-chat/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { setAnswerActions } from './actions'
 import { OpenUIRow } from './renderer'
-import { makeWorkflowRow } from './settings'
+import { createGenuiClientService } from './service'
+import { makeAnswerFormatRow } from './settings'
 import openuiCss from '@openuidev/react-ui/index.css'
 import defaultsCss from '@openuidev/react-ui/defaults.css'
 import localCss from './styles.css'
@@ -31,6 +32,12 @@ type ClientSessions = {
 }
 
 export function apply(ctx: Context): void {
+  // The answer format listens for the worker, and the worker listens for the format: a
+  // companion bundle registers its Query() tools here, and this bundle registers nothing of
+  // its own. Publishing the surface before the row renderer means a tool that loads a moment
+  // later still lands in front of it.
+  ctx.provide('genuiClient', createGenuiClientService())
+
   // No `data-openui-theme` here on purpose. Latching OpenUI to dark meant a light shell grew
   // dark cards, and it was a second theme to keep in sync with the harness one. styles.css
   // re-points every OpenUI colour, radius and type role at the `--dsw-*` tokens instead, so
@@ -103,8 +110,8 @@ export function apply(ctx: Context): void {
   ctx.inject(['configForms', 'remote'], (scoped) => {
     scoped.slots.inject('settings.general.item', () =>
       scoped.slots.register(
-        { name: 'settings.general.item', id: 'genui-workflows', order: 40 },
-        makeWorkflowRow(scoped),
+        { name: 'settings.general.item', id: 'genui-answer-format', order: 40 },
+        makeAnswerFormatRow(scoped),
       ),
     )
   })

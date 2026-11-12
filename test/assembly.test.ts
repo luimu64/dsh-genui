@@ -10,24 +10,10 @@ import { describe, expect, test } from 'bun:test'
 import { Context } from '@deepseek-ai/cordis'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import { registerAgentPrompt } from '../src/host/prompt'
-import { createWorkflowRegistry } from '../src/host/workflows'
-import type { ModeStore } from '../src/host/mode'
-import { testConfig } from './helpers'
+import { createGenuiHostService } from '../src/host/registry'
+import { modeStore, testConfig } from './helpers'
 
 const config = testConfig({ defaultOn: false })
-/** The shipped definitions; the directory does not exist, so only built-ins load. */
-const registry = createWorkflowRegistry({ dir: config.workflowDir })
-
-function store(on: Set<string>): ModeStore {
-  return {
-    file: '/tmp/genui-mode.json',
-    defaultOn: false,
-    isOn: (id) => on.has(id),
-    set: (id, next) => void (next ? on.add(id) : on.delete(id)),
-    sessions: () => [...on],
-    offSessions: () => [],
-  }
-}
 
 /** A bundle that owns the system prompt: replaces the whole section list. */
 function promptReplacer(ctx: Context, text: string): void {
@@ -52,7 +38,7 @@ async function assemble(sessionId: string, origin?: 'subagent') {
 describe('prompt assembly', () => {
   test('adds the section for an enabled conversation only', async () => {
     const { ctx, agent } = await assemble('s-on')
-    registerAgentPrompt(ctx, config, store(new Set(['s-on'])), registry)
+    registerAgentPrompt(ctx, config, modeStore(new Set(['s-on'])), createGenuiHostService())
 
     const enabled = await ctx.systemPrompt.assemble({ agent, scope: agent })
     expect(enabled.sections.map((section) => section.name)).toContain('genui:openui')
@@ -65,7 +51,7 @@ describe('prompt assembly', () => {
 
   test('stays out of subagent assemblies', async () => {
     const { ctx, agent } = await assemble('s-on', 'subagent')
-    registerAgentPrompt(ctx, config, store(new Set(['s-on'])), registry)
+    registerAgentPrompt(ctx, config, modeStore(new Set(['s-on'])), createGenuiHostService())
     const assembled = await ctx.systemPrompt.assemble({ agent, scope: agent })
     expect(assembled.sections.map((section) => section.name)).not.toContain('genui:openui')
   })
@@ -75,7 +61,7 @@ describe('prompt assembly', () => {
     await ctx.plugin(SystemPrompt, {})
     // Mounted first, exactly as the profile orders its bundles.
     promptReplacer(ctx, 'You are a general assistant.')
-    registerAgentPrompt(ctx, config, store(new Set(['s-on'])), registry)
+    registerAgentPrompt(ctx, config, modeStore(new Set(['s-on'])), createGenuiHostService())
 
     const agent = { session: { id: 's-on', header: {} } } as any
     const assembled = await ctx.systemPrompt.assemble({ agent, scope: agent })
@@ -86,27 +72,39 @@ describe('prompt assembly', () => {
     expect(names[0]).toBe('persona:complete')
   })
 
-  test('a live workflow write changes the next assembly, not the next restart', async () => {
-    let current: string[] = ['real']
-    const workflows = { get: () => current }
+  test('a companion block and its context reach the assembled prompt', async () => {
     const { ctx, agent } = await assemble('s-on')
-    registerAgentPrompt(ctx, testConfig({ defaultOn: false, workflows }), store(new Set(['s-on'])), registry)
+    const service = createGenuiHostService()
+    registerAgentPrompt(ctx, config, modeStore(new Set(['s-on'])), service)
+    service.addPromptBlock({ id: 'probe', anchor: 'tools', text: () => '- probe_tool()' })
+    service.addContext('probe', () => '### Probe context\n\n- one thing')
+
+    const assembled = await ctx.systemPrompt.assemble({ agent, scope: agent })
+    expect(assembled.sections.find((section) => section.name === 'genui:openui')?.text).toContain(
+      '- probe_tool()',
+    )
+    expect(assembled.contexts.map((entry) => entry.name)).toContain('genui:probe')
+  })
+
+  test('a companion that unloads takes its text with it', async () => {
+    const { ctx, agent } = await assemble('s-on')
+    const service = createGenuiHostService()
+    registerAgentPrompt(ctx, config, modeStore(new Set(['s-on'])), service)
+    const remove = service.addPromptBlock({ id: 'probe', anchor: 'tools', text: () => '- probe_tool()' })
 
     const before = await ctx.systemPrompt.assemble({ agent, scope: agent })
-    const textBefore = before.sections.find((section) => section.name === 'genui:openui')?.text ?? ''
-    expect(textBefore).not.toContain('Optional workflow: anime')
+    expect(before.sections.find((section) => section.name === 'genui:openui')?.text).toContain('- probe_tool()')
 
-    // What the Settings row does to the volatile field.
-    current = ['real', 'anime']
+    remove()
     const after = await ctx.systemPrompt.assemble({ agent, scope: agent })
-    expect(after.sections.find((section) => section.name === 'genui:openui')?.text).toContain(
-      'Optional workflow: anime',
-    )
+    const text = after.sections.find((section) => section.name === 'genui:openui')?.text ?? ''
+    expect(text).not.toContain('- probe_tool()')
+    expect(text).toContain('This deployment exposes no Query tools')
   })
 
   test('adds the section once, however often the prompt is assembled', async () => {
     const { ctx, agent } = await assemble('s-on')
-    registerAgentPrompt(ctx, config, store(new Set(['s-on'])), registry)
+    registerAgentPrompt(ctx, config, modeStore(new Set(['s-on'])), createGenuiHostService())
     await ctx.systemPrompt.assemble({ agent, scope: agent })
     const second = await ctx.systemPrompt.assemble({ agent, scope: agent })
     expect(second.sections.filter((section) => section.name === 'genui:openui')).toHaveLength(1)

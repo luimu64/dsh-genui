@@ -169,3 +169,21 @@ describe('rowMode', () => {
     expect(programStarted('Here is a table:')).toBe(false)
   })
 })
+
+describe('a one-line answer', () => {
+  test('is a program, root statement or not', () => {
+    expect(looksLikeOpenUI('TextContent("Two.")')).toBe(true)
+    expect(looksLikeOpenUI('Callout("info", "Heads up", "text")')).toBe(true)
+    expect(rowMode({ status: 'settled' }, 'TextContent("Two.")', false)).toBe('program')
+  })
+
+  test('prose that opens a bracket is still prose', () => {
+    expect(looksLikeOpenUI('Not really (but close).')).toBe(false)
+    expect(looksLikeOpenUI('Two kids (and a dog).')).toBe(false)
+  })
+
+  test('the call is recognised as a program the moment it starts', () => {
+    expect(programStarted('TextCon')).toBe(false)
+    expect(programStarted('TextContent("Tw')).toBe(true)
+  })
+})

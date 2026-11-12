@@ -1,18 +1,19 @@
 /**
- * `/genui/*` routes on the harness web server.
+ * `/genui/mode` on the harness web server: the *only* HTTP surface this bundle owns.
  *
- * These routes are unauthenticated, so they are only acceptable on a loopback bind: every
- * request must be same-origin (`Origin`/`Sec-Fetch-Site`) and every POST must declare JSON.
- * The browser cannot be tricked into posting here from another site, and a non-browser caller
- * that is already running locally can do whatever it likes anyway.
+ * The route is unauthenticated, so it is only acceptable on a loopback bind: a request must be
+ * same-origin (`Origin`/`Sec-Fetch-Site`) and every POST must declare JSON. The browser cannot
+ * be tricked into posting here from another site, and a non-browser caller that is already
+ * running locally can do whatever it likes anyway.
+ *
+ * Generation routes (`/genui/generate` and friends) belong to the optional image bundle, which
+ * carries its own copy of these guards so that it can be installed, removed or written against
+ * this one without either half reaching into the other's files.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-host-webserver'
-import { readRender } from './images'
 import type { ModeStore } from './mode'
-import type { Config as GenuiConfig } from './config'
-import { IMAGE_ROUTE, type GenuiService } from './service'
 
 export class HttpError extends Error {
   constructor(
@@ -86,7 +87,7 @@ function sendText(res: ServerResponse, status: number, message: string): void {
 }
 
 /** Unwrap `{ req: {...} }` (the wire shape) and tolerate a bare request body. */
-function payload(body: unknown): Record<string, unknown> {
+export function payload(body: unknown): Record<string, unknown> {
   if (!body || typeof body !== 'object') throw new HttpError(400, 'expected a json object')
   const record = body as Record<string, unknown>
   const inner = record.req ?? record.request
@@ -114,60 +115,15 @@ async function guardWith(
   }
 }
 
-export function registerRoutes(
-  ctx: Context,
-  service: GenuiService,
-  config: GenuiConfig,
-  mode: ModeStore,
-): (() => void)[] {
+export function registerRoutes(ctx: Context, mode: ModeStore): (() => void)[] {
   const log = ctx.logger('dsh-genui')
 
-  const guard = (req: IncomingMessage, res: ServerResponse, run: () => Promise<void>) =>
-    guardWith(req, res, run, log)
-
-  /// The cache key the browser hashed travels *beside* `req` in the wire body, so it has to be
-  /// read from the raw envelope: `payload()` unwraps to the request itself.
-  const keyOf = (raw: unknown): string | undefined => {
-    if (!raw || typeof raw !== 'object') return undefined
-    const key = (raw as Record<string, unknown>).key
-    return typeof key === 'string' ? key : undefined
-  }
-
-  const post = (
-    path: string,
-    run: (body: Record<string, unknown>, key: string | undefined) => Promise<unknown>,
-  ) =>
-    ctx.webServer.register({
-      kind: 'exact',
-      path,
-      handler: (req, res) =>
-        guard(req, res, async () => {
-          const raw = await readJson(req)
-          sendJson(res, 200, await run(payload(raw), keyOf(raw)))
-        }),
-    })
-
   return [
-    post('/genui/generate', (body, key) => service.generate(body as any, key)),
-    post('/genui/edit', (body, key) => service.edit(body as any, key)),
-
-    // A browser whose own cache lost an entry asks whether this machine still has the
-    // picture. Keys only: the answer is a lookup, never a render.
-    post('/genui/cached', async (body) => {
-      const asked = Array.isArray(body.keys)
-        ? body.keys.filter((key): key is string => typeof key === 'string')
-        : typeof body.key === 'string'
-          ? [body.key]
-          : [];
-      if (!asked.length) throw new HttpError(400, 'keys is required')
-      return { renders: service.cached(asked) }
-    }),
-
     ctx.webServer.register({
       kind: 'exact',
       path: '/genui/mode',
       handler: (req, res) =>
-        guard(req, res, async () => {
+        guardWith(req, res, async () => {
           const url = new URL(req.url ?? '/', 'http://127.0.0.1')
           if (req.method === 'GET') {
             const session = url.searchParams.get('session')
@@ -188,69 +144,7 @@ export function registerRoutes(
           if (typeof body.enabled !== 'boolean') throw new HttpError(400, 'enabled must be a boolean')
           mode.set(session, body.enabled)
           sendJson(res, 200, { session, openui: mode.isOn(session) })
-        }),
-    }),
-
-    ctx.webServer.register({
-      kind: 'exact',
-      path: '/genui/health',
-      handler: (req, res) =>
-        guard(req, res, async () => {
-          sendJson(res, 200, await service.health())
-        }),
-    }),
-
-    ctx.webServer.register({
-      kind: 'exact',
-      path: '/genui/workflows',
-      handler: (req, res) =>
-        guard(req, res, async () => {
-          if (req.method === 'GET') {
-            sendJson(res, 200, { workflows: service.workflows(), dir: service.registry.dir })
-            return
-          }
-          if (req.method !== 'POST') throw new HttpError(405, 'method not allowed')
-          const body = payload(await readJson(req))
-          if (body.action !== 'remove') throw new HttpError(400, 'unknown action')
-          const id = typeof body.id === 'string' ? body.id.trim() : ''
-          if (!id) throw new HttpError(400, 'id is required')
-          if (service.workflows().find((entry) => entry.id === id)?.builtin) {
-            throw new HttpError(400, `"${id}" is built in: disable it instead of deleting it`)
-          }
-          if (!service.removeWorkflow(id)) throw new HttpError(404, `no workflow "${id}"`)
-          sendJson(res, 200, { removed: id, workflows: service.workflows() })
-        }),
-    }),
-
-    ctx.webServer.register({
-      kind: 'prefix',
-      path: IMAGE_ROUTE,
-      handler: (req, res) =>
-        guard(req, res, async () => {
-          const pathname = new URL(req.url ?? '/', 'http://127.0.0.1').pathname
-          const prefix = `${IMAGE_ROUTE}/`
-          if (!pathname.startsWith(prefix)) throw new HttpError(404, 'not found')
-          let name: string
-          try {
-            name = decodeURIComponent(pathname.slice(prefix.length))
-          } catch {
-            throw new HttpError(400, 'bad image name')
-          }
-          if (!name) throw new HttpError(404, 'not found')
-          let bytes: Uint8Array
-          try {
-            bytes = await readRender(config.imagesDir, name)
-          } catch {
-            throw new HttpError(404, 'no such image')
-          }
-          res.writeHead(200, {
-            'content-type': 'image/png',
-            'content-length': bytes.byteLength,
-            'cache-control': 'public, max-age=31536000, immutable',
-            'x-content-type-options': 'nosniff',
-          })
-          res.end(Buffer.from(bytes))
-        }),
+        }, log),
     }),
   ]
 }
